@@ -166,22 +166,21 @@ def whale_and_anomaly_detector():
                 active_alerts[coin_name] = data 
 
                 # Ambil jam saat ini
+# 3. SAVE TO MEMORY FOR WEB
                 timestamp_now = datetime.now().strftime('%H:%M:%S')
+                data['time'] = timestamp_now
+                active_alerts[coin_name] = data 
 
-                # Simpan data termasuk jam munculnya sinyal
-                data['time'] = timestamp_now # Tambahkan jam ke data
-                active_alerts[coin_name] = data
-
+                # ANTI-SPAM TELEGRAM
                 if coin_name in last_alerts and last_alerts[coin_name] == current_signal:
-                    continue # Sinyal masih sama, skip biar gak spam Telegram
+                    continue 
                 
-                last_alerts[coin_name] = current_signal # Update memory pencegah spam
+                last_alerts[coin_name] = current_signal 
                 
-                if "NEUTRAL" in current_signal or "WAIT" in current_signal:
-                    print(f"{Y}[BYPASS]{W} Target: {coin_name:<8} | Status: Low_Volatility")
+                if "NEUTRAL" in current_signal:
                     continue
 
-# --- RAKIT PESAN & TOMBOL (FIXED) ---
+                # RAKIT PESAN TELEGRAM
                 color_theme = "🟢" if "ACCUMULATION" in current_signal else "🔴"
                 msg = (
                     f"{color_theme} **{data['header']}** {color_theme}\n"
@@ -189,25 +188,21 @@ def whale_and_anomaly_detector():
                     f"🪙 Asset: `{coin_name}`\n"
                     f"📢 Signal: **{current_signal}**\n"
                     f"💵 Adj. Entry: `${data['price_usd']:.8f}`\n"
-                    f"🎯 **TP1 (Safe): `${data['tp1_usd']:.8f}`**\n"
-                    f"🚀 **TP2 (Whale): `${data['tp2_usd']:.8f}`**\n"
-                    f"🌌 **TP3 (Moon): `${data['tp3_usd']:.8f}`**\n"
-                    f"🐳 Whale Power: `{data['mpi']:.1f}%` (MPI)\n"
-                    f"⚡ Vol Surge: `{data['vol_spike']:.1f}x` (VITAL)\n"
-                    f"━━━━━━━━━━━━━━━━━━━━"
+                    f"🎯 **TP1: `${data['tp1_usd']:.8f}`**\n"
+                    f"🚀 **TP2: `${data['tp2_usd']:.8f}`**\n"
+                    f"🌌 **TP3: `${data['tp3_usd']:.8f}`**\n"
+                    f"🐳 Power: `{data['mpi']:.1f}%`\n"
+                    f"⚡ Vol Surge: `{data['vol_spike']:.1f}x`"
                 )
 
-                # --- BUAT TOMBOL DINAMIS ---
                 markup = InlineKeyboardMarkup()
-                btn = InlineKeyboardButton("📊 View Chart Indodax", url=f"https://indodax.com/market/{coin_name}IDR")
-                markup.add(btn)
+                markup.add(InlineKeyboardButton("📊 View Chart", url=f"https://indodax.com/market/{coin_name}IDR"))
 
-                # --- KIRIM KE TELEGRAM ---
                 try:
                     bot.send_message(CHAT_ID, msg, parse_mode='Markdown', reply_markup=markup)
-                    print(f"{G}[SUCCESS]{W} Payload_Delivered: {coin_name} | OK_200")
+                    print(f"{G}[SUCCESS]{W} Sent to Telegram: {coin_name}")
                 except Exception as e:
-                    print(f"{R}[FAILURE]{W} Dispatch_Error: {str(e)}")
+                    print(f"{R}[ERROR]{W} Telegram fail: {e}")
                     
                     # Kirim WA jika Vital
                     vital_keywords = ["SUPER", "STRONG", "RALLY", "PANIC"]
