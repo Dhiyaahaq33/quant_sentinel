@@ -62,39 +62,30 @@ def fetch_all_markets():
 
 def get_market_analysis(symbol):
     try:
-        # KEMBALI KE INDODAX (Stable Source)
+        # 1. Fetch Data Indodax (Stable Source)
         ohlcv = exchange.fetch_ohlcv(symbol, '1h', limit=100)
-        
-        if not ohlcv or len(ohlcv) < 20:
-            return None        
+        if not ohlcv or len(ohlcv) < 20: return None        
         df = pd.DataFrame(ohlcv, columns=['ts', 'open', 'high', 'low', 'close', 'vol'])
         
-        # 1. Indikator Dasar
+        # 2. Indikator Dasar & RSI
         df['sma_20'] = df['close'].rolling(window=20).mean()
-        df['std'] = df['close'].rolling(window=20).std()
-        
-        # 2. RSI
         delta = df['close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         df['rsi'] = 100 - (100 / (1 + (gain / loss)))
         
-        # 3. Market Psychology (MPI)
+        # 3. Market Psychology (MPI) & Vol Spike
         green_vol = df[df['close'] > df['open']]['vol'].sum()
         red_vol = df[df['close'] < df['open']]['vol'].sum()
         mpi = (green_vol / (green_vol + red_vol)) * 100 if (green_vol + red_vol) > 0 else 50
         
         last = df.iloc[-1]
+        df['vol_avg'] = df['vol'].rolling(window=20).mean()
+        vol_spike_ratio = last['vol'] / df['vol_avg'].iloc[-1] if df['vol_avg'].iloc[-1] > 0 else 0
         
-        # 4. Volume Spike Logic
-        df['vol_avg'] = df['vol'].rolling(window=20).mean() 
-        avg_vol = df['vol_avg'].iloc[-1]
-        vol_spike_ratio = last['vol'] / avg_vol if avg_vol > 0 else 0
-        
-    # 5. Signal Logic (Professional Institutional Grade)
-        signal = "⚖️ NEUTRAL / SIDEWAYS"
+        # 4. Professional Institutional Signals
+        signal = "⚖️ NEUTRAL"
         header = "📊 MARKET INTELLIGENCE"
-        
         if last['rsi'] < 35:
             signal = "🚀 STRONG ACCUMULATION"; header = "🔥 BULLISH REVERSAL"
         elif last['rsi'] > 65:
@@ -102,42 +93,35 @@ def get_market_analysis(symbol):
         elif vol_spike_ratio < 0.5:
             signal = "💤 LOW LIQUIDITY"; header = "😴 CONSOLIDATION"
 
-        # 6. RUMUS TARGET HARGA (Agresif & Spesifik)
-        current_price = last['close']
+        # 5. SMART MULTIPLE TARGETS (Whale Trajectory Model)
+        curr_p = last['close']
         whale_strength = mpi / 100
         vol_factor = max(vol_spike_ratio, 1.0)
-      # --- PERHITUNGAN FINAL ---
-       # --- PERHITUNGAN FINAL ---
-        current_price = last['close']
         
-        # Target awal berdasarkan rumus agresif (misal 15%)
-        dynamic_move = current_price * (whale_strength * 0.15) * vol_factor
-        
-        target_price = current_price
-        if "BUY" in signal or "ACCUMULATION" in signal:
-            target_price = current_price + dynamic_move
-        elif "SELL" in signal or "DISTRIBUTION" in signal:
-            target_price = current_price - dynamic_move
+        # TP1: Conservative (3% Move) | TP2: Aggressive (15% Whale Move)
+        if "ACCUMULATION" in signal or "BUY" in signal:
+            tp1_raw = curr_p * 1.03
+            tp2_raw = curr_p + (curr_p * whale_strength * 0.15 * vol_factor)
+        elif "DISTRIBUTION" in signal or "SELL" in signal:
+            tp1_raw = curr_p * 0.97
+            tp2_raw = curr_p - (curr_p * whale_strength * 0.15 * vol_factor)
         else:
-            target_price = df['sma_20'].iloc[-1]
+            tp1_raw = tp2_raw = df['sma_20'].iloc[-1]
 
-        # MARKUP HARGA -5% UNTUK TAMPILAN (0.95)
-        display_price_usd = (current_price / current_usd_rate) * 0.95
-        display_target_usd = (target_price / current_usd_rate) * 0.95
-
+        # 6. MARKUP HARGA -5% UNTUK TAMPILAN (0.95)
         return {
-            'price_idr': current_price * 0.95, # Tampilan IDR -5%
-            'price_usd': display_price_usd,   # Tampilan USD -5%
-            'target_price_usd': display_target_usd, # Target USD -5%
+            'price_idr': curr_p * 0.95,
+            'price_usd': (curr_p / current_usd_rate) * 0.95,
+            'tp1_usd': (tp1_raw / current_usd_rate) * 0.95,
+            'tp2_usd': (tp2_raw / current_usd_rate) * 0.95,
             'rsi': last['rsi'],
             'mpi': mpi,
             'signal': signal,
             'header': header,
             'vol_spike': vol_spike_ratio
         }
-        
-    except Exception as e: 
-        print(f"⚠️ Error di {symbol}: {e}")
+    except Exception as e:
+        print(f"⚠️ Error analysis {symbol}: {e}")
         return None
 
 # ================= 🐋 SMART WHALE DETECTOR (REVISED) =================
@@ -291,25 +275,22 @@ def cmd_deep_cek(m):
 
 @app.route('/api/intelligence')
 def get_intelligence():
-    intelligence_report = []
-    
-    # Ambil semua data, balik urutannya (terbaru di atas)
+    reports = []
+    # Reverse agar data terbaru muncul di atas
     all_data = list(active_alerts.items())
-    all_data.reverse() 
-
+    all_data.reverse()
     for coin, info in all_data:
-        intelligence_report.append({
+        reports.append({
             "asset": coin,
-            "signal": info.get('signal', 'N/A'),
-            "price": f"{info.get('price_usd', 0):.8f}",
-            "target": f"{info.get('target_price_usd', 0):.8f}", # Tambahkan ini
-            "rsi": f"{info.get('rsi', 0):.2f}",
-            "mpi": f"{info.get('mpi', 0):.1f}",
-            "vol": f"{info.get('vol_spike', 0):.1f}",
-            "status": "VITAL" if any(k in info.get('signal', '') for k in ["SUPER", "STRONG"]) else "STABLE"
+            "signal": info['signal'],
+            "price": f"{info['price_usd']:.8f}",
+            "tp1": f"{info['tp1_usd']:.8f}",
+            "tp2": f"{info['tp2_usd']:.8f}",
+            "rsi": f"{info['rsi']:.2f}",
+            "mpi": f"{info['mpi']:.1f}",
+            "vol": f"{info['vol_spike']:.1f}"
         })
-
-    return {"reports": intelligence_report}
+    return {"reports": reports}
 
 if __name__ == "__main__":
     fetch_all_markets()
