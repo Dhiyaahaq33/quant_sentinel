@@ -164,7 +164,13 @@ def whale_and_anomaly_detector():
               # 3. ANTI-DOUBLE CHAT & FILTER SIDEWAYS
                 # Simpan seluruh paket data (Harga, RSI, MPI) untuk Web Dashboard
                 active_alerts[coin_name] = data 
-                
+
+                # Ambil jam saat ini
+                timestamp_now = datetime.now().strftime('%H:%M:%S')
+
+                # Simpan data termasuk jam munculnya sinyal
+                data['time'] = timestamp_now # Tambahkan jam ke data
+                active_alerts[coin_name] = data
 
                 if coin_name in last_alerts and last_alerts[coin_name] == current_signal:
                     continue # Sinyal masih sama, skip biar gak spam Telegram
@@ -296,6 +302,7 @@ def get_intelligence():
         reports.append({
             "asset": coin,
             "signal": info.get('signal', 'N/A'),
+            "time": info.get('time', '--:--:--')
             "price": f"{info.get('price_usd', 0):.8f}",
             "tp1": f"{info.get('tp1_usd', 0):.8f}",
             "tp2": f"{info.get('tp2_usd', 0):.8f}",
