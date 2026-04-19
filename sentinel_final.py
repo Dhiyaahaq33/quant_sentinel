@@ -290,7 +290,7 @@ def cmd_deep_cek(m):
     except:
         bot.reply_to(m, "Gunakan: `/cek btc`")
 
-@app.route('/api/intelligence')
+@app.route('/api/intelligence') # Pastikan baris ini ada dan tidak typo
 def get_intelligence():
     reports = []
     all_data = list(active_alerts.items())
@@ -300,7 +300,7 @@ def get_intelligence():
         reports.append({
             "asset": coin,
             "signal": info.get('signal', 'N/A'),
-            "time": info.get('time', '--:--:--'), # <--- Pastikan baris di atas ini ada komanya!
+            "time": info.get('time', '--:--:--'),
             "price": f"{info.get('price_usd', 0):.8f}",
             "tp1": f"{info.get('tp1_usd', 0):.8f}",
             "tp2": f"{info.get('tp2_usd', 0):.8f}",
@@ -314,14 +314,11 @@ def get_intelligence():
 if __name__ == "__main__":
     fetch_all_markets()
     
-    # Railway akan memberikan port secara otomatis melalui environment variable
+    # Ambil port dari Railway environment
     port = int(os.environ.get("PORT", 5000))
     
-    # Threading: Jalanin bot & scan market di background
     threading.Thread(target=whale_and_anomaly_detector, daemon=True).start()
     threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
     
-    print(f"🚀 Sentinel v12.0 Online on port {port}")
-    
-    # Jalankan Dashboard Web Flask
+    # Host harus '0.0.0.0' agar bisa diakses publik
     app.run(host='0.0.0.0', port=port)
