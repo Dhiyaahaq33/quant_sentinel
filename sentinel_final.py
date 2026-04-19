@@ -4,19 +4,13 @@ import telebot
 import pandas as pd
 import threading
 import urllib3
-from flask import Flask, request
+import math  # TAMBAHKAN INI biar TP3 jalan
+from flask import Flask, request, render_template
 from datetime import datetime
 import requests 
-from datetime import datetime, timedelta
 import os
-
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-markup = InlineKeyboardMarkup()
-btn = InlineKeyboardButton("View Chart", url=f"https://indodax.com/market/{coin_name}IDR")
-markup.add(btn)
-bot.send_message(CHAT_ID, msg, parse_mode='Markdown', reply_markup=markup)
 
-from flask import render_template
 app = Flask(__name__)
 
 @app.route('/')
@@ -181,8 +175,8 @@ def whale_and_anomaly_detector():
                     print(f"{Y}[BYPASS]{W} Target: {coin_name:<8} | Status: Low_Volatility")
                     continue
 
-# --- FIX 2: Perbaikan Loop whale_and_anomaly_detector (Perbaikan Nama Variabel Target) ---
-# Di dalam loop whale_and_anomaly_detector, ganti bagian pesan telegram menjadi:
+# --- RAKIT PESAN & TOMBOL (FIXED) ---
+                color_theme = "🟢" if "ACCUMULATION" in current_signal else "🔴"
                 msg = (
                     f"{color_theme} **{data['header']}** {color_theme}\n"
                     f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -197,12 +191,17 @@ def whale_and_anomaly_detector():
                     f"━━━━━━━━━━━━━━━━━━━━"
                 )
 
-                # 5. DISPATCHER EXECUTION
-                print(f"{C}[ATTENTION]{W} Signal_Match: {G}{coin_name}{W} | Initializing_Payload...")
-                try:
-                    bot.send_message(CHAT_ID, msg, parse_mode='Markdown')
+                # --- BUAT TOMBOL DINAMIS ---
+                markup = InlineKeyboardMarkup()
+                btn = InlineKeyboardButton("📊 View Chart Indodax", url=f"https://indodax.com/market/{coin_name}IDR")
+                markup.add(btn)
 
+                # --- KIRIM KE TELEGRAM ---
+                try:
+                    bot.send_message(CHAT_ID, msg, parse_mode='Markdown', reply_markup=markup)
                     print(f"{G}[SUCCESS]{W} Payload_Delivered: {coin_name} | OK_200")
+                except Exception as e:
+                    print(f"{R}[FAILURE]{W} Dispatch_Error: {str(e)}")
                     
                     # Kirim WA jika Vital
                     vital_keywords = ["SUPER", "STRONG", "RALLY", "PANIC"]
