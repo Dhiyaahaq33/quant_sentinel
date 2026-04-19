@@ -347,18 +347,15 @@ def get_intelligence():
 
 if __name__ == "__main__":
     fetch_all_markets()
-    # Threading Management
+    
+    # Railway akan memberikan port secara otomatis melalui environment variable
+    port = int(os.environ.get("PORT", 5000))
+    
+    # Threading: Jalanin bot & scan market di background
     threading.Thread(target=whale_and_anomaly_detector, daemon=True).start()
     threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
     
-    print("🚀 Sentinel v12.0: The Brain Edition Online!")
+    print(f"🚀 Sentinel v12.0 Online on port {port}")
     
-if __name__ == "__main__":
-    # Railway akan kasih nomor port lewat environment variable "PORT"
-    port = int(os.environ.get("PORT", 5000))
-    
-    # Bagian threading tetep harus ada supaya bot tele & web jalan bareng
-    threading.Thread(target=monitor_market, daemon=True).start()
-    
-    # Jalankan Flask pakai port dari Railway
+    # Jalankan Dashboard Web Flask
     app.run(host='0.0.0.0', port=port)
