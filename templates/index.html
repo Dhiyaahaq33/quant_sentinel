@@ -108,15 +108,23 @@
                             <div><div class="indicator-label">B-POWER</div><div class="indicator-val">${report.mpi}%</div></div>
                             <div><div class="indicator-label">VOL SPIKE</div><div class="indicator-val">${report.vol}x</div></div>
                         </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; border-top: 1px dashed #444; padding-top: 10px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; border-top: 1px dashed #444; padding-top: 10px;">
+                            
                             <div>
                                 <div class="indicator-label">TP 1 (CONSERVATIVE)</div>
                                 <div class="indicator-val" style="color: #00ff41; font-size: 1.5em;">$${report.tp1}</div>
                             </div>
+                            
                             <div>
                                 <div class="indicator-label">TP 2 (AGGRESSIVE)</div>
                                 <div class="indicator-val" style="color: #00ff41; font-size: 1.5em; text-shadow: 0 0 10px #00ff41;">$${report.tp2}</div>
                             </div>
+                            
+                            <div>
+                                <div class="indicator-label">TP 3</div>
+                                <div class="indicator-val" style="color: #00ff41; font-size: 1.1em; text-shadow: 0 0 10px #00ff41;">$${report.tp3}</div>
+                            </div>
+                            
                         </div>
                     `;
                     container.appendChild(card);
