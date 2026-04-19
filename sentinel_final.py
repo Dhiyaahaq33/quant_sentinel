@@ -10,6 +10,12 @@ import requests
 from datetime import datetime, timedelta
 import os
 
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+markup = InlineKeyboardMarkup()
+btn = InlineKeyboardButton("View Chart", url=f"https://indodax.com/market/{coin_name}IDR")
+markup.add(btn)
+bot.send_message(CHAT_ID, msg, parse_mode='Markdown', reply_markup=markup)
+
 from flask import render_template
 app = Flask(__name__)
 
@@ -60,21 +66,21 @@ def fetch_all_markets():
         print(f"✅ Intelligence Engine Ready: {len(ALL_IDR_SYMBOLS)} Assets Scanned.")
     except: pass
 
+# --- FIX 1: Perbaikan Fungsi get_market_analysis (Konsistensi Nama Variabel) ---
 def get_market_analysis(symbol):
     try:
-        # 1. Fetch Data Indodax (Stable Source)
         ohlcv = exchange.fetch_ohlcv(symbol, '1h', limit=100)
         if not ohlcv or len(ohlcv) < 20: return None        
         df = pd.DataFrame(ohlcv, columns=['ts', 'open', 'high', 'low', 'close', 'vol'])
         
-        # 2. Indikator Dasar & RSI
+        # Indikator Dasar & RSI
         df['sma_20'] = df['close'].rolling(window=20).mean()
         delta = df['close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         df['rsi'] = 100 - (100 / (1 + (gain / loss)))
         
-        # 3. Market Psychology (MPI) & Vol Spike
+        # Market Psychology (MPI) & Vol Spike
         green_vol = df[df['close'] > df['open']]['vol'].sum()
         red_vol = df[df['close'] < df['open']]['vol'].sum()
         mpi = (green_vol / (green_vol + red_vol)) * 100 if (green_vol + red_vol) > 0 else 50
@@ -83,43 +89,49 @@ def get_market_analysis(symbol):
         df['vol_avg'] = df['vol'].rolling(window=20).mean()
         vol_spike_ratio = last['vol'] / df['vol_avg'].iloc[-1] if df['vol_avg'].iloc[-1] > 0 else 0
         
-        # 4. Professional Institutional Signals
+        # Professional Signals
         signal = "⚖️ NEUTRAL"
         header = "📊 MARKET INTELLIGENCE"
         if last['rsi'] < 35:
             signal = "🚀 STRONG ACCUMULATION"; header = "🔥 BULLISH REVERSAL"
         elif last['rsi'] > 65:
             signal = "🔴 DISTRIBUTION / SELL"; header = "⚠️ OVERBOUGHT WARNING"
-        elif vol_spike_ratio < 0.5:
-            signal = "💤 LOW LIQUIDITY"; header = "😴 CONSOLIDATION"
 
-        # 5. SMART MULTIPLE TARGETS (Whale Trajectory Model)
+ # 5. SMART MULTIPLE TARGETS (SENTINEL WHALE TRAJECTORY)
         curr_p = last['close']
         whale_strength = mpi / 100
         vol_factor = max(vol_spike_ratio, 1.0)
         
-        # TP1: Conservative (3% Move) | TP2: Aggressive (15% Whale Move)
-        if "ACCUMULATION" in signal or "BUY" in signal:
+        # Logika Target Berlapis (Markup -5% akan diaplikasikan di return)
+        if "ACCUMULATION" in signal:
+            # TP1: Conservative (3% - Area Resistance Terdekat)
             tp1_raw = curr_p * 1.03
+            # TP2: Aggressive (Berdasarkan Whale Power & Volume)
             tp2_raw = curr_p + (curr_p * whale_strength * 0.15 * vol_factor)
-        elif "DISTRIBUTION" in signal or "SELL" in signal:
+            # TP3: Moon Shot (Menggunakan Volatility Expansion 2.5x dari TP2)
+            tp3_raw = curr_p + (curr_p * whale_strength * 0.25 * math.sqrt(vol_factor))
+        elif "DISTRIBUTION" in signal:
             tp1_raw = curr_p * 0.97
             tp2_raw = curr_p - (curr_p * whale_strength * 0.15 * vol_factor)
+            tp3_raw = curr_p - (curr_p * whale_strength * 0.25 * math.sqrt(vol_factor))
         else:
-            tp1_raw = tp2_raw = df['sma_20'].iloc[-1]
+            tp1_raw = tp2_raw = tp3_raw = df['sma_20'].iloc[-1]
 
-        # 6. MARKUP HARGA -5% UNTUK TAMPILAN (0.95)
+        # 6. RETURN DATA (Markup -5% sudah termasuk)
         return {
-            'price_idr': curr_p * 0.95,
             'price_usd': (curr_p / current_usd_rate) * 0.95,
             'tp1_usd': (tp1_raw / current_usd_rate) * 0.95,
             'tp2_usd': (tp2_raw / current_usd_rate) * 0.95,
+            'tp3_usd': (tp3_raw / current_usd_rate) * 0.95,
             'rsi': last['rsi'],
             'mpi': mpi,
             'signal': signal,
             'header': header,
-            'vol_spike': vol_spike_ratio
+            'vol_spike': vol_spike_ratio,
+            'resistance': df['high'].max() * 0.95,
+            'support': df['low'].min() * 0.95
         }
+        
     except Exception as e:
         print(f"⚠️ Error analysis {symbol}: {e}")
         return None
@@ -169,17 +181,17 @@ def whale_and_anomaly_detector():
                     print(f"{Y}[BYPASS]{W} Target: {coin_name:<8} | Status: Low_Volatility")
                     continue
 
-               # RAKIT PESAN TELEGRAM DENGAN TARGET
-              # RAKIT PESAN TELEGRAM PRO (+5% Display)
-             # RAKIT PESAN TELEGRAM PRO (-5% Display)
-                color_theme = "🟢" if "ACCUMULATION" in current_signal else "🔴"
+# --- FIX 2: Perbaikan Loop whale_and_anomaly_detector (Perbaikan Nama Variabel Target) ---
+# Di dalam loop whale_and_anomaly_detector, ganti bagian pesan telegram menjadi:
                 msg = (
                     f"{color_theme} **{data['header']}** {color_theme}\n"
                     f"━━━━━━━━━━━━━━━━━━━━\n"
                     f"🪙 Asset: `{coin_name}`\n"
                     f"📢 Signal: **{current_signal}**\n"
                     f"💵 Adj. Entry: `${data['price_usd']:.8f}`\n"
-                    f"🎯 **ADJ. TARGET: `${data['target_price_usd']:.8f}`**\n"
+                    f"🎯 **TP1 (Safe): `${data['tp1_usd']:.8f}`**\n"
+                    f"🚀 **TP2 (Whale): `${data['tp2_usd']:.8f}`**\n"
+                    f"🌌 **TP3 (Moon): `${data['tp3_usd']:.8f}`**\n"
                     f"🐳 Whale Power: `{data['mpi']:.1f}%` (MPI)\n"
                     f"⚡ Vol Surge: `{data['vol_spike']:.1f}x` (VITAL)\n"
                     f"━━━━━━━━━━━━━━━━━━━━"
@@ -279,17 +291,20 @@ def get_intelligence():
     # Reverse agar data terbaru muncul di atas
     all_data = list(active_alerts.items())
     all_data.reverse()
-    for coin, info in all_data:
+    
+  for coin, info in all_data:
         reports.append({
             "asset": coin,
             "signal": info['signal'],
             "price": f"{info['price_usd']:.8f}",
             "tp1": f"{info['tp1_usd']:.8f}",
             "tp2": f"{info['tp2_usd']:.8f}",
+            "tp3": f"{info['tp3_usd']:.8f}", // Tambahkan ini
             "rsi": f"{info['rsi']:.2f}",
             "mpi": f"{info['mpi']:.1f}",
             "vol": f"{info['vol_spike']:.1f}"
         })
+
     return {"reports": reports}
 
 if __name__ == "__main__":
