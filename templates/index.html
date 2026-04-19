@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title> CAHYO (SENTINEL v12.0) | Intelligence Hub</title>
+    <style>
+        body { 
+            background-color: #050505; 
+            color: #00ff41; 
+            font-family: 'Segoe UI', Roboto, sans-serif; 
+            padding: 30px;
+            overflow-x: hidden;
+        }
+        .dashboard-header h1 {
+            font-size: 3em;
+            text-shadow: 0 0 20px #00ff41;
+            margin-bottom: 5px;
+        }
+        
+        /* Bar Dasar */
+        .signal-card {
+            border: 1px solid #222;
+            padding: 25px;
+            margin-bottom: 12px;
+            border-radius: 12px;
+            animation: dropDown 0.4s ease-out;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+
+        /* WARNA BACKGROUND TIPIS SESUAI ARAHAN MARKET */
+        .card-buy { 
+            background: rgba(0, 255, 65, 0.08) !important; 
+            border-left: 10px solid #00ff41; 
+        }
+        .card-sell { 
+            background: rgba(255, 62, 62, 0.08) !important; 
+            border-left: 10px solid #ff3e3e; 
+        }
+        .card-wait { 
+            background: rgba(241, 196, 15, 0.08) !important; 
+            border-left: 10px solid #f1c40f; 
+        }
+
+        /* TICKER PUTIH */
+        .asset-name { font-size: 2.2em; font-weight: 900; color: #ffffff; }
+        .signal-text { font-size: 1.8em; font-weight: bold; text-transform: uppercase; }
+        
+        .buy { color: #00ff41; text-shadow: 0 0 10px #00ff41; }
+        .sell { color: #ff3e3e; text-shadow: 0 0 10px #ff3e3e; }
+        .neutral { color: #f1c40f; text-shadow: 0 0 10px #f1c40f; }
+
+        @keyframes dropDown {
+            from { transform: translateY(-50px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        .indicator-label { color: #aaa; font-size: 0.8em; }
+        .indicator-val { color: #fff; font-size: 1.4em; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="dashboard-header">
+        <h1>[ Sentinel v12.0 ] Market Intelligence Hub</h1>
+        <p id="status">INITIALIZING CORE ACCESS...</p>
+    </div>
+    <hr style="border: 1px solid #00ff41; margin-bottom: 30px;">
+
+    <div id="feed-container">
+        </div>
+
+    <script>
+        let lastReports = [];
+
+        async function updateDashboard() {
+            try {
+                const response = await fetch('/api/intelligence');
+                const data = await response.json();
+                const container = document.getElementById('feed-container');
+                document.getElementById('status').innerText = `LIVE CORE ACCESS | ${new Date().toLocaleTimeString()}`;
+                
+                // Hanya update jika ada data baru
+                if (JSON.stringify(data.reports) !== JSON.stringify(lastReports)) {
+                    container.innerHTML = '';
+                    data.reports.forEach(report => {
+                        let colorClass = 'neutral';
+                        let barClass = 'card-wait';
+                        
+                        if (report.signal.includes('BUY')) {
+                            colorClass = 'buy'; barClass = 'card-buy';
+                        } else if (report.signal.includes('SELL')) {
+                            colorClass = 'sell'; barClass = 'card-sell';
+                        }
+
+                        const card = document.createElement('div');
+                        card.className = `signal-card ${barClass}`;
+                        card.innerHTML = `
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                                <span class="asset-name">${report.asset}</span>
+                                <span class="signal-text ${colorClass}">${report.signal}</span>
+                            </div>
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1.5fr; gap: 15px; margin-bottom: 15px;">
+                                <div><div class="indicator-label">PRICE</div><div class="indicator-val">$${report.price}</div></div>
+                                <div><div class="indicator-label">RSI</div><div class="indicator-val">${report.rsi}</div></div>
+                                <div><div class="indicator-label">B-POWER</div><div class="indicator-val">${report.mpi}%</div></div>
+                                <div><div class="indicator-label">VOL SPIKE</div><div class="indicator-val">${report.vol}x</div></div>
+                            </div>
+                            <div style="border-top: 1px dashed #444; padding-top: 10px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div class="indicator-label">WHALE TARGET PRICE</div>
+                                    <div class="indicator-val" style="color: #00ff41; font-size: 2em;">$${report.target}</div>
+                                </div>
+                                <div style="text-align: right; font-size: 0.7em; color: #555;">
+                                    BASED ON INTRINSIC MPI ANALYSIS
+                                </div>
+                            </div>
+                        `;
+                        container.appendChild(card);
+                        
+                    });
+                    lastReports = data.reports;
+                }
+            } catch (err) { console.error("Link Dropped"); }
+        }
+        
+        setInterval(updateDashboard, 1000);
+        updateDashboard();
+    </script>
+</body>
+</html>
