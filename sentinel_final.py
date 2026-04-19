@@ -47,8 +47,6 @@ bot = telebot.TeleBot(TOKEN)
 bot.remove_webhook()
 time.sleep(1)
 exchange = ccxt.indodax({'enableRateLimit': True, 'verify': False})
-# Koneksi Binance untuk akurasi TradingView
-binance = ccxt.binance({'enableRateLimit': True})
 
 current_usd_rate = 16200 
 ALL_IDR_SYMBOLS = []
@@ -64,12 +62,8 @@ def fetch_all_markets():
 
 def get_market_analysis(symbol):
     try:
-        # Konversi symbol IDR ke USDT untuk Binance
-        coin_only = symbol.split('/')[0]
-        binance_symbol = f"{coin_only}/USDT"
-        
-        # Ambil data dari Binance agar akurat sesuai TradingView
-        ohlcv = binance.fetch_ohlcv(binance_symbol, '1h', limit=100)
+        # KEMBALI KE INDODAX (Stable Source)
+        ohlcv = exchange.fetch_ohlcv(symbol, '1h', limit=100)
         
         if not ohlcv or len(ohlcv) < 20:
             return None        
@@ -78,10 +72,8 @@ def get_market_analysis(symbol):
         # 1. Indikator Dasar
         df['sma_20'] = df['close'].rolling(window=20).mean()
         df['std'] = df['close'].rolling(window=20).std()
-        df['upper_bb'] = df['sma_20'] + (2.0 * df['std'])
-        df['lower_bb'] = df['sma_20'] - (2.0 * df['std'])
         
-        # 2. RSI Calculation
+        # 2. RSI
         delta = df['close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
@@ -92,33 +84,28 @@ def get_market_analysis(symbol):
         red_vol = df[df['close'] < df['open']]['vol'].sum()
         mpi = (green_vol / (green_vol + red_vol)) * 100 if (green_vol + red_vol) > 0 else 50
         
-        # 4. Support & Resistance
-        resistance = df['high'].max()
-        support = df['low'].min()
         last = df.iloc[-1]
         
-        # 5. Volume Spike Logic
+        # 4. Volume Spike Logic
         df['vol_avg'] = df['vol'].rolling(window=20).mean() 
         avg_vol = df['vol_avg'].iloc[-1]
         vol_spike_ratio = last['vol'] / avg_vol if avg_vol > 0 else 0
-        is_vol_spike = vol_spike_ratio >= 1.5 # Gue turunin dikit biar data cepet muncul
         
-        # 6. Sinyal Logic
+        # 5. Signal Logic
         signal = "⚖️ NEUTRAL"
         header = "📊 MARKET INFO"
-        if last['rsi'] < 35 and is_vol_spike:
-            signal = "🚀 SUPER STRONG BUY"; header = "🔥 LEDAKAN BELI"
-        elif last['rsi'] < 35:
+        if last['rsi'] < 35:
             signal = "🟢 ACCUMULATE / BUY"; header = "✅ MOMEN SEROK"
         elif last['rsi'] > 65:
             signal = "🔴 SELL / TAKE PROFIT"; header = "⚠️ WASPADA DROP"
         elif vol_spike_ratio < 0.5:
             signal = "💤 WAIT & SEE"; header = "😴 MARKET SEPI"
 
-        # 7. Target Harga Agresif
+        # 6. RUMUS TARGET HARGA (Agresif & Spesifik)
         current_price = last['close']
         whale_strength = mpi / 100
         vol_factor = max(vol_spike_ratio, 1.0)
+        # Pengali 0.15 (15%) agar target jauh
         dynamic_move = current_price * (whale_strength * 0.15) * vol_factor
         
         target_price = current_price
@@ -126,21 +113,19 @@ def get_market_analysis(symbol):
         elif "SELL" in signal: target_price = current_price - dynamic_move
         else: target_price = df['sma_20'].iloc[-1]
 
+        # Return data dalam USD (Convert dari IDR Indodax)
         return {
-            'price_idr': current_price * current_usd_rate,
-            'price_usd': current_price,
-            'target_price_usd': target_price,
+            'price_idr': current_price,
+            'price_usd': current_price / current_usd_rate,
+            'target_price_usd': target_price / current_usd_rate,
             'rsi': last['rsi'],
             'mpi': mpi,
-            'support': support,
-            'resistance': resistance,
             'signal': signal,
             'header': header, 
-            'vol': last['vol'],
             'vol_spike': vol_spike_ratio
         }
     except Exception as e: 
-        print(f"⚠️ Skip {symbol}: {e}")
+        print(f"⚠️ Error di {symbol}: {e}")
         return None
 
 # ================= 🐋 SMART WHALE DETECTOR (REVISED) =================
