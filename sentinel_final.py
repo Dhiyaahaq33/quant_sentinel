@@ -91,39 +91,50 @@ def get_market_analysis(symbol):
         avg_vol = df['vol_avg'].iloc[-1]
         vol_spike_ratio = last['vol'] / avg_vol if avg_vol > 0 else 0
         
-        # 5. Signal Logic
-        signal = "⚖️ NEUTRAL"
-        header = "📊 MARKET INFO"
+    # 5. Signal Logic (Professional Institutional Grade)
+        signal = "⚖️ NEUTRAL / SIDEWAYS"
+        header = "📊 MARKET INTELLIGENCE"
+        
         if last['rsi'] < 35:
-            signal = "🟢 ACCUMULATE / BUY"; header = "✅ MOMEN SEROK"
+            signal = "🚀 STRONG ACCUMULATION"; header = "🔥 BULLISH REVERSAL"
         elif last['rsi'] > 65:
-            signal = "🔴 SELL / TAKE PROFIT"; header = "⚠️ WASPADA DROP"
+            signal = "🔴 DISTRIBUTION / SELL"; header = "⚠️ OVERBOUGHT WARNING"
         elif vol_spike_ratio < 0.5:
-            signal = "💤 WAIT & SEE"; header = "😴 MARKET SEPI"
+            signal = "💤 LOW LIQUIDITY"; header = "😴 CONSOLIDATION"
 
         # 6. RUMUS TARGET HARGA (Agresif & Spesifik)
         current_price = last['close']
         whale_strength = mpi / 100
         vol_factor = max(vol_spike_ratio, 1.0)
-        # Pengali 0.15 (15%) agar target jauh
+      # --- PERHITUNGAN FINAL ---
+        current_price = last['close']
+        
+        # Target awal berdasarkan rumus agresif (misal 15%)
         dynamic_move = current_price * (whale_strength * 0.15) * vol_factor
         
         target_price = current_price
-        if "BUY" in signal: target_price = current_price + dynamic_move
-        elif "SELL" in signal: target_price = current_price - dynamic_move
-        else: target_price = df['sma_20'].iloc[-1]
+        if "BUY" in signal or "ACCUMULATION" in signal:
+            target_price = current_price + dynamic_move
+        elif "SELL" in signal or "DISTRIBUTION" in signal:
+            target_price = current_price - dynamic_move
+        else:
+            target_price = df['sma_20'].iloc[-1]
 
-        # Return data dalam USD (Convert dari IDR Indodax)
+        # MARKUP HARGA +5% UNTUK TAMPILAN (Sesuai Request)
+        display_price_usd = (current_price / current_usd_rate) * 1.05
+        display_target_usd = (target_price / current_usd_rate) * 1.05
+
         return {
-            'price_idr': current_price,
-            'price_usd': current_price / current_usd_rate,
-            'target_price_usd': target_price / current_usd_rate,
+            'price_idr': current_price * 1.05, # Tampilan IDR +5%
+            'price_usd': display_price_usd,   # Tampilan USD +5%
+            'target_price_usd': display_target_usd, # Target USD +5%
             'rsi': last['rsi'],
             'mpi': mpi,
             'signal': signal,
             'header': header, 
             'vol_spike': vol_spike_ratio
         }
+        
     except Exception as e: 
         print(f"⚠️ Error di {symbol}: {e}")
         return None
@@ -174,19 +185,19 @@ def whale_and_anomaly_detector():
                     continue
 
                # RAKIT PESAN TELEGRAM DENGAN TARGET
-                color_theme = "🟢" if "BUY" in current_signal else "🔴"
+              # RAKIT PESAN TELEGRAM PRO (+5% Display)
+                color_theme = "🟢" if "ACCUMULATION" in current_signal else "🔴"
                 msg = (
                     f"{color_theme} **{data['header']}** {color_theme}\n"
                     f"━━━━━━━━━━━━━━━━━━━━\n"
                     f"🪙 Asset: `{coin_name}`\n"
                     f"📢 Signal: **{current_signal}**\n"
-                    f"💵 Price: `${data['price_usd']:.8f}`\n"
-                    f"🎯 **TARGET: `${data['target_price_usd']:.8f}`**\n"
-                    f"🐳 Buy Power: `{data['mpi']:.1f}%` (MPI)\n"
-                    f"⚡ Vol Spike: `{data['vol_spike']:.1f}x` (VITAL)\n"
+                    f"💵 Display Price: `${data['price_usd']:.8f}`\n"
+                    f"🎯 **PROJ. TARGET: `${data['target_price_usd']:.8f}`**\n"
+                    f"🐳 Whale Power: `{data['mpi']:.1f}%` (MPI)\n"
+                    f"⚡ Vol Surge: `{data['vol_spike']:.1f}x` (VITAL)\n"
                     f"━━━━━━━━━━━━━━━━━━━━"
                 )
-
 
                 # 5. DISPATCHER EXECUTION
                 print(f"{C}[ATTENTION]{W} Signal_Match: {G}{coin_name}{W} | Initializing_Payload...")
