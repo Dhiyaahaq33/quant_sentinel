@@ -293,16 +293,14 @@ def cmd_deep_cek(m):
 @app.route('/api/intelligence')
 def get_intelligence():
     reports = []
-    # Memastikan data dibalik agar yang terbaru di atas
     all_data = list(active_alerts.items())
     all_data.reverse()
     
     for coin, info in all_data:
-        # Pastikan kunci 'tp1_usd', 'tp2_usd', dan 'tp3_usd' ada di dictionary
         reports.append({
             "asset": coin,
             "signal": info.get('signal', 'N/A'),
-            "time": info.get('time', '--:--:--')
+            "time": info.get('time', '--:--:--'), # <--- Pastikan baris di atas ini ada komanya!
             "price": f"{info.get('price_usd', 0):.8f}",
             "tp1": f"{info.get('tp1_usd', 0):.8f}",
             "tp2": f"{info.get('tp2_usd', 0):.8f}",
