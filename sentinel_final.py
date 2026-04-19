@@ -288,25 +288,25 @@ def cmd_deep_cek(m):
 @app.route('/api/intelligence')
 def get_intelligence():
     reports = []
-    # Reverse agar data terbaru muncul di atas
+    # Memastikan data dibalik agar yang terbaru di atas
     all_data = list(active_alerts.items())
     all_data.reverse()
     
-  for coin, info in all_data:
+    for coin, info in all_data:
+        # Pastikan kunci 'tp1_usd', 'tp2_usd', dan 'tp3_usd' ada di dictionary
         reports.append({
             "asset": coin,
-            "signal": info['signal'],
-            "price": f"{info['price_usd']:.8f}",
-            "tp1": f"{info['tp1_usd']:.8f}",
-            "tp2": f"{info['tp2_usd']:.8f}",
-            "tp3": f"{info['tp3_usd']:.8f}", // Tambahkan ini
-            "rsi": f"{info['rsi']:.2f}",
-            "mpi": f"{info['mpi']:.1f}",
-            "vol": f"{info['vol_spike']:.1f}"
+            "signal": info.get('signal', 'N/A'),
+            "price": f"{info.get('price_usd', 0):.8f}",
+            "tp1": f"{info.get('tp1_usd', 0):.8f}",
+            "tp2": f"{info.get('tp2_usd', 0):.8f}",
+            "tp3": f"{info.get('tp3_usd', 0):.8f}",
+            "rsi": f"{info.get('rsi', 0):.2f}",
+            "mpi": f"{info.get('mpi', 0):.1f}",
+            "vol": f"{info.get('vol_spike', 0):.1f}"
         })
-
     return {"reports": reports}
-
+    
 if __name__ == "__main__":
     fetch_all_markets()
     
