@@ -107,6 +107,7 @@ def get_market_analysis(symbol):
         whale_strength = mpi / 100
         vol_factor = max(vol_spike_ratio, 1.0)
       # --- PERHITUNGAN FINAL ---
+       # --- PERHITUNGAN FINAL ---
         current_price = last['close']
         
         # Target awal berdasarkan rumus agresif (misal 15%)
@@ -120,18 +121,18 @@ def get_market_analysis(symbol):
         else:
             target_price = df['sma_20'].iloc[-1]
 
-        # MARKUP HARGA +5% UNTUK TAMPILAN (Sesuai Request)
-        display_price_usd = (current_price / current_usd_rate) * 1.05
-        display_target_usd = (target_price / current_usd_rate) * 1.05
+        # MARKUP HARGA -5% UNTUK TAMPILAN (0.95)
+        display_price_usd = (current_price / current_usd_rate) * 0.95
+        display_target_usd = (target_price / current_usd_rate) * 0.95
 
         return {
-            'price_idr': current_price * 1.05, # Tampilan IDR +5%
-            'price_usd': display_price_usd,   # Tampilan USD +5%
-            'target_price_usd': display_target_usd, # Target USD +5%
+            'price_idr': current_price * 0.95, # Tampilan IDR -5%
+            'price_usd': display_price_usd,   # Tampilan USD -5%
+            'target_price_usd': display_target_usd, # Target USD -5%
             'rsi': last['rsi'],
             'mpi': mpi,
             'signal': signal,
-            'header': header, 
+            'header': header,
             'vol_spike': vol_spike_ratio
         }
         
@@ -186,14 +187,15 @@ def whale_and_anomaly_detector():
 
                # RAKIT PESAN TELEGRAM DENGAN TARGET
               # RAKIT PESAN TELEGRAM PRO (+5% Display)
+             # RAKIT PESAN TELEGRAM PRO (-5% Display)
                 color_theme = "🟢" if "ACCUMULATION" in current_signal else "🔴"
                 msg = (
                     f"{color_theme} **{data['header']}** {color_theme}\n"
                     f"━━━━━━━━━━━━━━━━━━━━\n"
                     f"🪙 Asset: `{coin_name}`\n"
                     f"📢 Signal: **{current_signal}**\n"
-                    f"💵 Display Price: `${data['price_usd']:.8f}`\n"
-                    f"🎯 **PROJ. TARGET: `${data['target_price_usd']:.8f}`**\n"
+                    f"💵 Adj. Entry: `${data['price_usd']:.8f}`\n"
+                    f"🎯 **ADJ. TARGET: `${data['target_price_usd']:.8f}`**\n"
                     f"🐳 Whale Power: `{data['mpi']:.1f}%` (MPI)\n"
                     f"⚡ Vol Surge: `{data['vol_spike']:.1f}x` (VITAL)\n"
                     f"━━━━━━━━━━━━━━━━━━━━"
