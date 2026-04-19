@@ -351,4 +351,13 @@ if __name__ == "__main__":
     threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
     
     print("🚀 Sentinel v12.0: The Brain Edition Online!")
-    app.run(host='0.0.0.0', port=5000, debug=True) # Tambahkan debug=True
+    
+if __name__ == "__main__":
+    # Railway akan kasih nomor port lewat environment variable "PORT"
+    port = int(os.environ.get("PORT", 5000))
+    
+    # Bagian threading tetep harus ada supaya bot tele & web jalan bareng
+    threading.Thread(target=monitor_market, daemon=True).start()
+    
+    # Jalankan Flask pakai port dari Railway
+    app.run(host='0.0.0.0', port=port)
