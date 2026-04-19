@@ -83,7 +83,9 @@
                 const data = await response.json();
                 const container = document.getElementById('feed-container');
                 
-                // Play sound if new assets are detected
+                // Update status jam di header
+                document.getElementById('status').innerText = `LIVE CORE ACCESS | ${new Date().toLocaleTimeString()}`;
+
                 if (data.reports.length > lastAssetsCount) {
                     if (lastAssetsCount !== 0) {
                         document.getElementById('alert-sound').play().catch(() => {});
@@ -93,24 +95,20 @@
 
                 const existingCards = Array.from(container.children).map(c => c.getAttribute('data-asset'));
 
-                container.innerHTML = '';
+                // CLEAR SEKALI DI LUAR LOOP
+                container.innerHTML = ''; 
+                
                 data.reports.forEach(report => {
                     let colorClass = 'neutral';
                     let barClass = 'card-wait';
                     if (report.signal.includes('ACCUMULATION')) { colorClass = 'buy'; barClass = 'card-buy'; }
                     else if (report.signal.includes('DISTRIBUTION')) { colorClass = 'sell'; barClass = 'card-sell'; }
-
-                    container.innerHTML = '';
-                    data.reports.forEach(report => {
-                    let colorClass = report.signal.includes('ACCUMULATION') ? 'buy' : 'sell';
-                    let barClass = report.signal.includes('ACCUMULATION') ? 'card-buy' : 'card-sell';
                     
-                    // Jika koin ini belum ada sebelumnya, kasih class animasi 'new-signal'
                     let animationClass = existingCards.includes(report.asset) ? '' : 'new-signal';
 
                     const card = document.createElement('div');
                     card.className = `signal-card ${barClass} ${animationClass}`;
-                    card.setAttribute('data-asset', report.asset); // Tandai asset
+                    card.setAttribute('data-asset', report.asset);
                     card.innerHTML = `
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                             <div>
@@ -126,17 +124,17 @@
                             <div><div class="indicator-label">VOL SPIKE</div><div class="indicator-val">${report.vol}x</div></div>
                         </div>
                         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; border-top: 1px dashed #444; padding-top: 10px;">
-                            <div><div class="indicator-label">TP 1</div><div class="indicator-val">$${report.tp1}</div></div>
-                            <div><div class="indicator-label">TP 2</div><div class="indicator-val">$${report.tp2}</div></div>
-                            <div><div class="indicator-label">TP 3</div><div class="indicator-val">$${report.tp3}</div></div>
+                            <div><div class="indicator-label">TP 1</div><div class="indicator-val" style="color:#00ff41">$${report.tp1}</div></div>
+                            <div><div class="indicator-label">TP 2</div><div class="indicator-val" style="color:#00ff41">$${report.tp2}</div></div>
+                            <div><div class="indicator-label">TP 3</div><div class="indicator-val" style="color:#00ff41">$${report.tp3}</div></div>
                         </div>
                     `;
                     container.appendChild(card);
                 });
-            } catch (err) { console.log("Dropped"); }
+            } catch (err) { console.log("API Connection Lost..."); }
         }
         
-        setInterval(updateDashboard, 1000);
+        setInterval(updateDashboard, 2000); // Cek tiap 2 detik biar gak berat
         updateDashboard();
     </script>
 </body>
