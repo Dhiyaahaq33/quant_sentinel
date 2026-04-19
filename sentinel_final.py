@@ -47,6 +47,8 @@ bot = telebot.TeleBot(TOKEN)
 bot.remove_webhook()
 time.sleep(1)
 exchange = ccxt.indodax({'enableRateLimit': True, 'verify': False})
+# Koneksi Binance untuk akurasi TradingView
+binance = ccxt.binance({'enableRateLimit': True})
 
 current_usd_rate = 16200 
 ALL_IDR_SYMBOLS = []
@@ -62,8 +64,12 @@ def fetch_all_markets():
 
 def get_market_analysis(symbol):
     try:
+        # Konversi symbol IDR ke USDT untuk Binance
+        coin_only = symbol.split('/')[0]
+        binance_symbol = f"{coin_only}/USDT"
         
-        ohlcv = exchange.fetch_ohlcv(binance_symbol, '1h', limit=100)
+        # Ambil data dari Binance agar akurat sesuai TradingView
+        ohlcv = binance.fetch_ohlcv(binance_symbol, '1h', limit=100)
         
         if not ohlcv or len(ohlcv) < 20:
             return None        
@@ -82,85 +88,48 @@ def get_market_analysis(symbol):
         df['rsi'] = 100 - (100 / (1 + (gain / loss)))
         
         # 3. Market Psychology (MPI)
-        # Mengukur volume pada candle hijau vs merah
         green_vol = df[df['close'] > df['open']]['vol'].sum()
         red_vol = df[df['close'] < df['open']]['vol'].sum()
         mpi = (green_vol / (green_vol + red_vol)) * 100 if (green_vol + red_vol) > 0 else 50
         
-        # 4. Support & Resistance (Simple High/Low)
+        # 4. Support & Resistance
         resistance = df['high'].max()
         support = df['low'].min()
-        
         last = df.iloc[-1]
         
-        # --- Tambahan Analisis Volume Spike ---
+        # 5. Volume Spike Logic
         df['vol_avg'] = df['vol'].rolling(window=20).mean() 
         avg_vol = df['vol_avg'].iloc[-1]
         vol_spike_ratio = last['vol'] / avg_vol if avg_vol > 0 else 0
-        is_vol_spike = vol_spike_ratio >= 3 
-
-
-        # --- Logic Volume Spike (Baru) ---
-        df['vol_avg'] = df['vol'].rolling(window=20).mean()
-        avg_vol = df['vol_avg'].iloc[-1]
-        vol_spike_ratio = last['vol'] / avg_vol if avg_vol > 0 else 0
-        is_vol_spike = vol_spike_ratio >= 3 
+        is_vol_spike = vol_spike_ratio >= 1.5 # Gue turunin dikit biar data cepet muncul
         
-       # --- Logic Rekomendasi & Visual ---
+        # 6. Sinyal Logic
         signal = "⚖️ NEUTRAL"
         header = "📊 MARKET INFO"
-        
-        # 1. SUPER STRONG BUY (Oversold + Spike Volume)
         if last['rsi'] < 35 and is_vol_spike:
-            signal = "🚀 SUPER STRONG BUY"
-            header = "🔥 LEDAKAN BELI (ENTRY!)"
-            
-        # 2. BUY (Oversold Area)
+            signal = "🚀 SUPER STRONG BUY"; header = "🔥 LEDAKAN BELI"
         elif last['rsi'] < 35:
-            signal = "🟢 ACCUMULATE / BUY"
-            header = "✅ MOMEN SEROK"
+            signal = "🟢 ACCUMULATE / BUY"; header = "✅ MOMEN SEROK"
+        elif last['rsi'] > 65:
+            signal = "🔴 SELL / TAKE PROFIT"; header = "⚠️ WASPADA DROP"
+        elif vol_spike_ratio < 0.5:
+            signal = "💤 WAIT & SEE"; header = "😴 MARKET SEPI"
 
-        # 3. SPEKULASI BUY (Support Reversal + MPI Naik)
-        elif last['close'] <= support * 1.02 and mpi > 60:
-            signal = "⚡ SPEKULASI BUY"
-            header = "🏹 PANTULAN SUPPORT"
-
-        # 4. SELL (Overbought + MPI Rendah)
-        elif last['rsi'] > 65 or (last['rsi'] > 60 and mpi < 40):
-            signal = "🔴 SELL / TAKE PROFIT"
-            header = "⚠️ WASPADA DROP"
-
-        # 5. WAIT & SEE (Volume Lemah / Sideways)
-        elif vol_spike_ratio < 0.8:
-            signal = "💤 WAIT & SEE"
-            header = "😴 MARKET SEPI"
-
-# --- REVISI LOGIKA TARGET HARGA (LEBIH AGRESIF) ---
+        # 7. Target Harga Agresif
         current_price = last['close']
-        whale_strength = mpi / 100  # Mengonversi MPI ke skala 0-1
-        
-        # KITA TINGKATKAN VOLATILITAS PREDIKSI
-        # Jika MPI tinggi, kita asumsikan Whale bisa dorong harga 10-20%
-        # Ditambah faktor Vol Spike untuk memperjauh target
-        vol_factor = max(vol_spike_ratio, 1.0) # Minimal pengali 1x
-        
-        # Rumus baru: menggunakan pengali 15% (0.15) agar target lebih jauh
+        whale_strength = mpi / 100
+        vol_factor = max(vol_spike_ratio, 1.0)
         dynamic_move = current_price * (whale_strength * 0.15) * vol_factor
         
-        if "BUY" in signal:
-            # Target Profit (Resistance Psikologis Whale)
-            target_price = current_price + dynamic_move
-        elif "SELL" in signal:
-            # Target Drop (Support Psikologis Whale)
-            target_price = current_price - dynamic_move
-        else:
-            # Jika Neutral, target adalah rata-rata pergerakan (SMA)
-            target_price = df['sma_20'].iloc[-1]
+        target_price = current_price
+        if "BUY" in signal: target_price = current_price + dynamic_move
+        elif "SELL" in signal: target_price = current_price - dynamic_move
+        else: target_price = df['sma_20'].iloc[-1]
 
         return {
-            'price_idr': current_price,
-            'price_usd': current_price / current_usd_rate,
-            'target_price_usd': target_price / current_usd_rate, # Target dalam USD
+            'price_idr': current_price * current_usd_rate,
+            'price_usd': current_price,
+            'target_price_usd': target_price,
             'rsi': last['rsi'],
             'mpi': mpi,
             'support': support,
@@ -170,9 +139,8 @@ def get_market_analysis(symbol):
             'vol': last['vol'],
             'vol_spike': vol_spike_ratio
         }
-        
     except Exception as e: 
-        print(f"Error analysis: {e}")
+        print(f"⚠️ Skip {symbol}: {e}")
         return None
 
 # ================= 🐋 SMART WHALE DETECTOR (REVISED) =================
