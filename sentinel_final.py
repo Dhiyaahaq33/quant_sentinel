@@ -47,9 +47,6 @@ bot = telebot.TeleBot(TOKEN)
 bot.remove_webhook()
 time.sleep(1)
 exchange = ccxt.indodax({'enableRateLimit': True, 'verify': False})
-# Tambahkan koneksi Binance untuk akurasi data global
-binance = ccxt.binance({'enableRateLimit': True})
-
 
 current_usd_rate = 16200 
 ALL_IDR_SYMBOLS = []
@@ -65,19 +62,12 @@ def fetch_all_markets():
 
 def get_market_analysis(symbol):
     try:
-        # Konversi symbol IDR ke USDT (Contoh: BTC/IDR -> BTC/USDT)
-        coin_only = symbol.split('/')[0]
-        binance_symbol = f"{coin_only}/USDT"
         
-        # Ambil data dari Binance (Timeframe 1h agar akurat)
-        ohlcv = binance.fetch_ohlcv(binance_symbol, '1h', limit=100)
+        ohlcv = exchange.fetch_ohlcv(binance_symbol, '1h', limit=100)
         
         if not ohlcv or len(ohlcv) < 20:
-            return None
-            
+            return None        
         df = pd.DataFrame(ohlcv, columns=['ts', 'open', 'high', 'low', 'close', 'vol'])
-        
-        # --- LANJUT KE PERHITUNGAN INDIKATOR (Baris 80 ke bawah tetap sama) ---
         
         # 1. Indikator Dasar
         df['sma_20'] = df['close'].rolling(window=20).mean()
