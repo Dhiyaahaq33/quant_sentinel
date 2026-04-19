@@ -141,21 +141,27 @@ def get_market_analysis(symbol):
             signal = "💤 WAIT & SEE"
             header = "😴 MARKET SEPI"
 
-# --- LOGIKA TARGET HARGA (WHALE POWER) ---
-        # MPI (Market Psychology Index) mengukur power bandar.
-        # Kita hitung target berdasarkan pergerakan intrinsik whale.
+# --- REVISI LOGIKA TARGET HARGA (LEBIH AGRESIF) ---
         current_price = last['close']
-        whale_strength = mpi / 100
+        whale_strength = mpi / 100  # Mengonversi MPI ke skala 0-1
         
-        # Prediksi pergerakan: Jika whale kuat, target lebih jauh (estimasi move 2-5%)
-        predicted_move = current_price * (whale_strength * 0.05)
+        # KITA TINGKATKAN VOLATILITAS PREDIKSI
+        # Jika MPI tinggi, kita asumsikan Whale bisa dorong harga 10-20%
+        # Ditambah faktor Vol Spike untuk memperjauh target
+        vol_factor = max(vol_spike_ratio, 1.0) # Minimal pengali 1x
+        
+        # Rumus baru: menggunakan pengali 15% (0.15) agar target lebih jauh
+        dynamic_move = current_price * (whale_strength * 0.15) * vol_factor
         
         if "BUY" in signal:
-            target_price = current_price + predicted_move
+            # Target Profit (Resistance Psikologis Whale)
+            target_price = current_price + dynamic_move
         elif "SELL" in signal:
-            target_price = current_price - predicted_move
+            # Target Drop (Support Psikologis Whale)
+            target_price = current_price - dynamic_move
         else:
-            target_price = current_price # Tetap jika neutral
+            # Jika Neutral, target adalah rata-rata pergerakan (SMA)
+            target_price = df['sma_20'].iloc[-1]
 
         return {
             'price_idr': current_price,
