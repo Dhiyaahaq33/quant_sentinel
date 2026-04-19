@@ -60,17 +60,18 @@
     </style>
 </head>
 <body>
+    <audio id="alert-sound" src="https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3" preload="auto"></audio>
+
     <div class="dashboard-header">
         <h1>[ Sentinel v12.0 ] Market Intelligence Hub</h1>
         <p id="status">INITIALIZING CORE ACCESS...</p>
     </div>
     <hr style="border: 1px solid #00ff41; margin-bottom: 30px;">
 
-    <div id="feed-container">
-        </div>
+    <div id="feed-container"></div>
 
     <script>
-        let lastReports = [];
+        let lastAssetsCount = 0;
 
         async function updateDashboard() {
             try {
@@ -79,47 +80,47 @@
                 const container = document.getElementById('feed-container');
                 document.getElementById('status').innerText = `LIVE CORE ACCESS | ${new Date().toLocaleTimeString()}`;
                 
-                // Hanya update jika ada data baru
-                if (JSON.stringify(data.reports) !== JSON.stringify(lastReports)) {
-                    container.innerHTML = '';
-                    data.reports.forEach(report => {
-                        let colorClass = 'neutral';
-                        let barClass = 'card-wait';
-                        
-                        if (report.signal.includes('BUY')) {
-                            colorClass = 'buy'; barClass = 'card-buy';
-                        } else if (report.signal.includes('SELL')) {
-                            colorClass = 'sell'; barClass = 'card-sell';
-                        }
-
-                        const card = document.createElement('div');
-                        card.className = `signal-card ${barClass}`;
-                        card.innerHTML = `
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                                <span class="asset-name">${report.asset}</span>
-                                <span class="signal-text ${colorClass}">${report.signal}</span>
-                            </div>
-                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1.5fr; gap: 15px; margin-bottom: 15px;">
-                                <div><div class="indicator-label">PRICE</div><div class="indicator-val">$${report.price}</div></div>
-                                <div><div class="indicator-label">RSI</div><div class="indicator-val">${report.rsi}</div></div>
-                                <div><div class="indicator-label">B-POWER</div><div class="indicator-val">${report.mpi}%</div></div>
-                                <div><div class="indicator-label">VOL SPIKE</div><div class="indicator-val">${report.vol}x</div></div>
-                            </div>
-                            <div style="border-top: 1px dashed #444; padding-top: 10px; display: flex; justify-content: space-between; align-items: center;">
-                                <div>
-                                    <div class="indicator-label">WHALE TARGET PRICE</div>
-                                    <div class="indicator-val" style="color: #00ff41; font-size: 2em;">$${report.target}</div>
-                                </div>
-                                <div style="text-align: right; font-size: 0.7em; color: #555;">
-                                    BASED ON INTRINSIC MPI ANALYSIS
-                                </div>
-                            </div>
-                        `;
-                        container.appendChild(card);
-                        
-                    });
-                    lastReports = data.reports;
+                // Play sound if new assets are detected
+                if (data.reports.length > lastAssetsCount) {
+                    if (lastAssetsCount !== 0) { // Don't play on first load
+                        document.getElementById('alert-sound').play().catch(() => console.log("Sound interaction required"));
+                    }
+                    lastAssetsCount = data.reports.length;
                 }
+
+                container.innerHTML = '';
+                data.reports.forEach(report => {
+                    let colorClass = 'neutral';
+                    let barClass = 'card-wait';
+                    if (report.signal.includes('ACCUMULATION')) { colorClass = 'buy'; barClass = 'card-buy'; }
+                    else if (report.signal.includes('DISTRIBUTION')) { colorClass = 'sell'; barClass = 'card-sell'; }
+
+                    const card = document.createElement('div');
+                    card.className = `signal-card ${barClass}`;
+                    card.innerHTML = `
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                            <span class="asset-name">${report.asset}</span>
+                            <span class="signal-text ${colorClass}">${report.signal}</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1.5fr; gap: 15px; margin-bottom: 15px;">
+                            <div><div class="indicator-label">ENTRY (-5%)</div><div class="indicator-val">$${report.price}</div></div>
+                            <div><div class="indicator-label">RSI</div><div class="indicator-val">${report.rsi}</div></div>
+                            <div><div class="indicator-label">B-POWER</div><div class="indicator-val">${report.mpi}%</div></div>
+                            <div><div class="indicator-label">VOL SPIKE</div><div class="indicator-val">${report.vol}x</div></div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; border-top: 1px dashed #444; padding-top: 10px;">
+                            <div>
+                                <div class="indicator-label">TP 1 (CONSERVATIVE)</div>
+                                <div class="indicator-val" style="color: #00ff41; font-size: 1.5em;">$${report.tp1}</div>
+                            </div>
+                            <div>
+                                <div class="indicator-label">TP 2 (AGGRESSIVE)</div>
+                                <div class="indicator-val" style="color: #00ff41; font-size: 1.5em; text-shadow: 0 0 10px #00ff41;">$${report.tp2}</div>
+                            </div>
+                        </div>
+                    `;
+                    container.appendChild(card);
+                });
             } catch (err) { console.error("Link Dropped"); }
         }
         
