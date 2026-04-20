@@ -105,7 +105,7 @@ def get_market_analysis(symbol):
 
         curr_p = last['close']
 
-          df['range_pct'] = (df['high'] - df['low']) / df['low']
+        df['range_pct'] = (df['high'] - df['low']) / df['low']
         avg_range = df['range_pct'].tail(20).mean()
         
         base_step = max(min(avg_range, 0.08), 0.01)
