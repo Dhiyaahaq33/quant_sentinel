@@ -109,7 +109,14 @@ def get_market_analysis(symbol):
             tp1_raw = tp2_raw = tp3_raw = df['sma_20'].iloc[-1]
             
 
-        # 6. RETURN DATA (Markup -5% sudah termasuk)
+        grade = "C (LOW)"
+        if (mpi > 65 or mpi < 35) and vol_spike_ratio > 1.5:
+            grade = "A+ (PERFECT)"
+        elif (mpi > 65 or mpi < 35) and vol_spike_ratio <= 1.5:
+            grade = "B (EARLY)"
+        elif (45 <= mpi <= 55) and vol_spike_ratio > 2.0:
+            grade = "B (CHAOS/NOISE)"
+
         return {
             'price_usd': (curr_p / current_usd_rate) * 0.95,
             'tp1_usd': (tp1_raw / current_usd_rate) * 0.95,
@@ -120,8 +127,7 @@ def get_market_analysis(symbol):
             'signal': signal,
             'header': header,
             'vol_spike': vol_spike_ratio,
-            'resistance': df['high'].max() * 0.95,
-            'support': df['low'].min() * 0.95
+            'grade': grade # Tambahkan grade di sini
         }
         
     except Exception as e:
@@ -178,19 +184,23 @@ def whale_and_anomaly_detector():
                 if "NEUTRAL" in current_signal:
                     continue
 
-                # RAKIT PESAN TELEGRAM
+               # RAKIT PESAN TELEGRAM
                 color_theme = "🟢" if "ACCUMULATION" in current_signal else "🔴"
+                grade_icon = "⭐" if "A+" in data['grade'] else "⚠️"
+                
                 msg = (
                     f"{color_theme} **{data['header']}** {color_theme}\n"
                     f"━━━━━━━━━━━━━━━━━━━━\n"
                     f"🪙 Asset: `{coin_name}`\n"
+                    f"🏆 Grade: **{data['grade']} {grade_icon}**\n" # Tambahan Grade
                     f"📢 Signal: **{current_signal}**\n"
                     f"💵 Adj. Entry: `${data['price_usd']:.8f}`\n"
                     f"🎯 **TP1: `${data['tp1_usd']:.8f}`**\n"
                     f"🚀 **TP2: `${data['tp2_usd']:.8f}`**\n"
                     f"🌌 **TP3: `${data['tp3_usd']:.8f}`**\n"
-                    f"🐳 Power: `{data['mpi']:.1f}%`\n"
-                    f"⚡ Vol Surge: `{data['vol_spike']:.1f}x`"
+                    f"🐳 Power: `{data['mpi']:.1f}%` (MPI)\n"
+                    f"⚡ Vol Surge: `{data['vol_spike']:.1f}x` (VITAL)\n"
+                    f"━━━━━━━━━━━━━━━━━━━━"
                 )
 
                 markup = InlineKeyboardMarkup()
@@ -293,6 +303,7 @@ def get_intelligence():
         reports.append({
             "asset": coin,
             "signal": info.get('signal', 'N/A'),
+            "grade": info.get('grade', 'C'), # Kirim Grade
             "time": info.get('time', '--:--:--'),
             "price": f"{info.get('price_usd', 0):.8f}",
             "tp1": f"{info.get('tp1_usd', 0):.8f}",
