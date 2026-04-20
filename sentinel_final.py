@@ -104,6 +104,11 @@ def get_market_analysis(symbol):
             signal = "🔴 DISTRIBUTION / SELL"; header = "⚠️ OVERBOUGHT WARNING"
 
         curr_p = last['close']
+
+        return {
+            'price_usd': (curr_p / current_usd_rate) * 0.95,
+            'price_idr': curr_p, # Tambahin ini biar gak error pas dipanggil
+            'tp1_usd': (tp1_raw / current_usd_rate) * 0.95,
     
         df['range_pct'] = (df['high'] - df['low']) / df['low']
         avg_range = df['range_pct'].tail(20).mean()
