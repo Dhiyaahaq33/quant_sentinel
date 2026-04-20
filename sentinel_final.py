@@ -184,33 +184,36 @@ def whale_and_anomaly_detector():
                 if "NEUTRAL" in current_signal:
                     continue
 
-               # RAKIT PESAN TELEGRAM
-                color_theme = "🟢" if "ACCUMULATION" in current_signal else "🔴"
-                grade_icon = "⭐" if "A+" in data['grade'] else "⚠️"
-                
-                msg = (
-                    f"{color_theme} **{data['header']}** {color_theme}\n"
-                    f"━━━━━━━━━━━━━━━━━━━━\n"
-                    f"🪙 Asset: `{coin_name}`\n"
-                    f"🏆 Grade: **{data['grade']} {grade_icon}**\n" # Tambahan Grade
-                    f"📢 Signal: **{current_signal}**\n"
-                    f"💵 Adj. Entry: `${data['price_usd']:.8f}`\n"
-                    f"🎯 **TP1: `${data['tp1_usd']:.8f}`**\n"
-                    f"🚀 **TP2: `${data['tp2_usd']:.8f}`**\n"
-                    f"🌌 **TP3: `${data['tp3_usd']:.8f}`**\n"
-                    f"🐳 Power: `{data['mpi']:.1f}%` (MPI)\n"
-                    f"⚡ Vol Surge: `{data['vol_spike']:.1f}x` (VITAL)\n"
-                    f"━━━━━━━━━━━━━━━━━━━━"
-                )
+                grade = "C (LOW)"
+                if (mpi > 65 or mpi < 35) and vol_spike_ratio > 1.5:
+                    grade = "A+ (PERFECT)"
+                elif (mpi > 65 or mpi < 35) and vol_spike_ratio <= 1.5:
+                    grade = "B (EARLY)"
+                elif (45 <= mpi <= 55) and vol_spike_ratio > 2.0:
+                    grade = "B (CHAOS)"
 
-                markup = InlineKeyboardMarkup()
-                markup.add(InlineKeyboardButton("📊 View Chart", url=f"https://indodax.com/market/{coin_name}IDR"))
-
-                try:
-                    bot.send_message(CHAT_ID, msg, parse_mode='Markdown', reply_markup=markup)
-                    print(f"{G}[SUCCESS]{W} Sent to Telegram: {coin_name}")
-                except Exception as e:
-                    print(f"{R}[ERROR]{W} Telegram fail: {e}")
+        # --- TELEGRAM AUTO-FILTER (Hanya Grade A+) ---
+                if grade == "A+ (PERFECT)":
+                    color_theme = "🟢" if "ACCUMULATION" in signal else "🔴"
+                    msg = (
+                        f"🌟 **SENTINEL HIGH-PRIORITY ALERT** 🌟\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"🪙 Asset: `{coin_name}`\n"
+                        f"🏆 Grade: **{grade}** 🔥\n"
+                        f"📢 Signal: **{signal}**\n"
+                        f"💵 Adj. Entry: `${data['price_usd']:.8f}`\n"
+                        f"🎯 **TP1: `${data['tp1_usd']:.8f}`**\n"
+                        f"🚀 **TP2: `${data['tp2_usd']:.8f}`**\n"
+                        f"🌌 **TP3: `${data['tp3_usd']:.8f}`**\n"
+                        f"🐳 Power: `{mpi:.1f}%` | ⚡ Vol: `{vol_spike_ratio:.1f}x`"
+                    )
+                    try:
+                # Tambahkan tombol chart
+                        markup = InlineKeyboardMarkup()
+                        markup.add(InlineKeyboardButton("📊 View Chart", url=f"https://indodax.com/market/{coin_name}IDR"))
+                        bot.send_message(CHAT_ID, msg, parse_mode='Markdown', reply_markup=markup)
+                    except:
+                        pass
                     
                     # Kirim WA jika Vital
                     vital_keywords = ["SUPER", "STRONG", "RALLY", "PANIC"]
