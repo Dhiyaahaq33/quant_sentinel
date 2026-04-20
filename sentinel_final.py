@@ -105,12 +105,7 @@ def get_market_analysis(symbol):
 
         curr_p = last['close']
 
-        return {
-            'price_usd': (curr_p / current_usd_rate) * 0.95,
-            'price_idr': curr_p, # Tambahin ini biar gak error pas dipanggil
-            'tp1_usd': (tp1_raw / current_usd_rate) * 0.95,
-    
-        df['range_pct'] = (df['high'] - df['low']) / df['low']
+          df['range_pct'] = (df['high'] - df['low']) / df['low']
         avg_range = df['range_pct'].tail(20).mean()
         
         base_step = max(min(avg_range, 0.08), 0.01)
@@ -127,8 +122,12 @@ def get_market_analysis(symbol):
             tp3_raw = curr_p * (1 - (base_step * 3.5 * power_multiplier))
         else:
             tp1_raw = tp2_raw = tp3_raw = curr_p
-            
 
+        return {
+            'price_usd': (curr_p / current_usd_rate) * 0.95,
+            'price_idr': curr_p, # Tambahin ini biar gak error pas dipanggil
+            'tp1_usd': (tp1_raw / current_usd_rate) * 0.95,
+                
         grade = "C (LOW)"
         # Syarat A+ : Power harus sinkron dengan arah sinyal
         if "ACCUMULATION" in signal and mpi > 65 and vol_spike_ratio > 1.5:
@@ -291,22 +290,6 @@ def cmd_deep_cek(m):
             bot.reply_to(m, f"❌ Data `{coin}` tidak ditemukan atau volume terlalu rendah untuk dianalisa.")
     except Exception as e:
         bot.reply_to(m, f"⚠️ Terjadi kesalahan teknis: {str(e)}")
-        
-        bot.send_chat_action(m.chat.id, 'typing')
-        analysis = get_market_analysis(symbol)
-        
-        if analysis:
-            res = (
-                f"🧠 **Intelligence Report: {coin}**\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"💵 USD: `${analysis['price_usd']:.10f}`\n" # Ubah jadi .10f
-                f"🇮🇩 IDR: `Rp{analysis['price_idr']:,.0f}`\n" # IDR biarin tanpa koma biar gak pusing bacanya
-                f"📊 RSI: `{analysis['rsi']:.2f}`\n"
-                f"🐳 Buy Power: `{analysis['mpi']:.1f}%`\n"
-                f"⚡ Vol Spike: `{analysis['vol_spike']:.1f}x` vs Avg\n"
-                f"📢 **Signal:** **{analysis['signal']}**\n"
-                f"━━━━━━━━━━━━━━━━━━━━"
-            )
             
             bot.send_message(m.chat.id, res, parse_mode='Markdown')
         else:
