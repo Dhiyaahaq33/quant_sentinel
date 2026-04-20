@@ -95,7 +95,6 @@
 
                 const existingCards = Array.from(container.children).map(c => c.getAttribute('data-asset'));
 
-                // CLEAR SEKALI DI LUAR LOOP
                 container.innerHTML = ''; 
                 
                 data.reports.forEach(report => {
@@ -113,10 +112,12 @@
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
                             <div>
                                 <span class="asset-name">${report.asset}</span>
+                                <span style="background: #222; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.7em; margin-left: 10px;">${report.grade}</span>
                                 <div style="color: #666; font-size: 0.8em; margin-top: 5px;">DETECTED AT: ${report.time}</div>
                             </div>
                             <span class="signal-text ${colorClass}">${report.signal}</span>
-                        </div>
+                        </div>                        
+                        
                         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr 1.5fr; gap: 15px; margin-bottom: 15px;">
                             <div><div class="indicator-label">ENTRY (-5%)</div><div class="indicator-val">$${report.price}</div></div>
                             <div><div class="indicator-label">RSI</div><div class="indicator-val">${report.rsi}</div></div>
@@ -134,7 +135,7 @@
             } catch (err) { console.log("API Connection Lost..."); }
         }
         
-        setInterval(updateDashboard, 2000); // Cek tiap 2 detik biar gak berat
+        setInterval(updateDashboard, 2000); 
         updateDashboard();
     </script>
 </body>
