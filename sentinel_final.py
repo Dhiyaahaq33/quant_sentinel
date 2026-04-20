@@ -5,7 +5,7 @@ import pandas as pd
 import threading
 import urllib3
 import math  # TAMBAHKAN INI biar TP3 jalan
-from flask import Flask, request, render_template
+from flask import Flask, jsonify, render_template, request, Response
 from datetime import datetime
 import requests 
 import os
@@ -14,10 +14,12 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 app = Flask(__name__)
 
 @app.route('/')
-def home():
-    return render_template('index.html') # Pastikan namanya sama persis dengan file lo
-
-# --- HACKER TERMINAL COLORS ---
+def index():
+    auth = request.authorization
+    if not auth or not check_auth(auth.username, auth.password):
+        return authenticate()
+    return render_template('index.html')
+    
 G = '\033[92m'  # Hijau Neon
 Y = '\033[93m'  # Kuning
 R = '\033[91m'  # Merah
@@ -91,35 +93,23 @@ def get_market_analysis(symbol):
         elif last['rsi'] > 65:
             signal = "🔴 DISTRIBUTION / SELL"; header = "⚠️ OVERBOUGHT WARNING"
 
- # 5. SMART MULTIPLE TARGETS (SENTINEL WHALE TRAJECTORY)
-        # --- REVISI TARGET PROFIT INTRINSIK (Line 115+) ---
         curr_p = last['close']
-        
-        # 1. Hitung "Napas" koin (Rata-rata Range High-Low 20 jam terakhir)
-        # Ini adalah nilai intrinsik seberapa fluktuatif koin tersebut
+    
         df['range_pct'] = (df['high'] - df['low']) / df['low']
-        avg_intrinsic_range = df['range_pct'].tail(20).mean()
+        avg_range = df['range_pct'].tail(20).mean()
         
-        # 2. Tentukan Langkah Dasar (Base Step)
-        # Minimal 1% (0.01) agar tidak terlalu mepet, maksimal 8% (0.08) agar tidak halu
-        base_step = max(min(avg_intrinsic_range, 0.08), 0.01)
+        base_step = max(min(avg_range, 0.08), 0.01)
         
-        # 3. Power Booster (Berdasarkan Volume)
-        # Semakin besar ledakan volume, target TP2 & TP3 semakin ditarik jauh
-        power_boost = 1.0 + (vol_spike_ratio / 10)
+        power_multiplier = 1.0 + (vol_spike_ratio / 10)
 
         if "ACCUMULATION" in signal:
-            # TP1: 1x Napas intrinsik (Sangat realistis)
-            tp1_raw = curr_p * (1 + base_step)
-            # TP2: 1.8x Napas (Agresif)
-            tp2_raw = curr_p * (1 + (base_step * 1.8 * power_boost))
-            # TP3: 3x Napas (Moon shot)
-            tp3_raw = curr_p * (1 + (base_step * 3.0 * power_boost))
-            
+            tp1_raw = curr_p * (1 + base_step)  
+            tp2_raw = curr_p * (1 + (base_step * 1.8 * power_multiplier)) 
+            tp3_raw = curr_p * (1 + (base_step * 3.5 * power_multiplier)) 
         elif "DISTRIBUTION" in signal:
             tp1_raw = curr_p * (1 - base_step)
-            tp2_raw = curr_p * (1 - (base_step * 1.8 * power_boost))
-            tp3_raw = curr_p * (1 - (base_step * 3.0 * power_boost))
+            tp2_raw = curr_p * (1 - (base_step * 1.8 * power_multiplier))
+            tp3_raw = curr_p * (1 - (base_step * 3.5 * power_multiplier))
         else:
             tp1_raw = tp2_raw = tp3_raw = curr_p
             
@@ -314,15 +304,21 @@ def cmd_deep_cek(m):
 
 @app.route('/api/intelligence') # Pastikan baris ini ada dan tidak typo
 def get_intelligence():
+    # Proteksi API agar data nggak bisa ditembak langsung tanpa login
+    auth = request.authorization
+    if not auth or not check_auth(auth.username, auth.password):
+        return jsonify({"error": "Unauthorized"}), 401
+    
+    global active_alerts
     reports = []
-    all_data = list(active_alerts.items())
-    all_data.reverse()
+    # Urutkan berdasarkan waktu terbaru
+    all_data = sorted(active_alerts.items(), key=lambda x: x[1].get('time', ''), reverse=True)
     
     for coin, info in all_data:
         reports.append({
             "asset": coin,
             "signal": info.get('signal', 'N/A'),
-            "grade": info.get('grade', 'C'), # Kirim Grade
+            "grade": info.get('grade', 'C'),
             "time": info.get('time', '--:--:--'),
             "price": f"{info.get('price_usd', 0):.8f}",
             "tp1": f"{info.get('tp1_usd', 0):.8f}",
@@ -332,12 +328,11 @@ def get_intelligence():
             "mpi": f"{info.get('mpi', 0):.1f}",
             "vol": f"{info.get('vol_spike', 0):.1f}"
         })
-    return {"reports": reports}
+    return jsonify({"reports": reports})
     
 if __name__ == "__main__":
     fetch_all_markets()
     
-    # Ambil port dari Railway environment
     port = int(os.environ.get("PORT", 5000))
     
     threading.Thread(target=whale_and_anomaly_detector, daemon=True).start()
