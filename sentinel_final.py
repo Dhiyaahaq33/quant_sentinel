@@ -92,21 +92,36 @@ def get_market_analysis(symbol):
             signal = "🔴 DISTRIBUTION / SELL"; header = "⚠️ OVERBOUGHT WARNING"
 
  # 5. SMART MULTIPLE TARGETS (SENTINEL WHALE TRAJECTORY)
+        # --- REVISI TARGET PROFIT INTRINSIK (Line 115+) ---
         curr_p = last['close']
-        whale_strength = mpi / 100
-        vol_factor = max(vol_spike_ratio, 1.0)
         
+        # 1. Hitung "Napas" koin (Rata-rata Range High-Low 20 jam terakhir)
+        # Ini adalah nilai intrinsik seberapa fluktuatif koin tersebut
+        df['range_pct'] = (df['high'] - df['low']) / df['low']
+        avg_intrinsic_range = df['range_pct'].tail(20).mean()
+        
+        # 2. Tentukan Langkah Dasar (Base Step)
+        # Minimal 1% (0.01) agar tidak terlalu mepet, maksimal 8% (0.08) agar tidak halu
+        base_step = max(min(avg_intrinsic_range, 0.08), 0.01)
+        
+        # 3. Power Booster (Berdasarkan Volume)
+        # Semakin besar ledakan volume, target TP2 & TP3 semakin ditarik jauh
+        power_boost = 1.0 + (vol_spike_ratio / 10)
+
         if "ACCUMULATION" in signal:
-            tp1_raw = curr_p * 1.03
-            tp2_raw = curr_p + (curr_p * whale_strength * 0.15 * vol_factor)
-            tp3_raw = curr_p + (curr_p * whale_strength * 0.30 * vol_factor) # Lebih tinggi dari TP2
+            # TP1: 1x Napas intrinsik (Sangat realistis)
+            tp1_raw = curr_p * (1 + base_step)
+            # TP2: 1.8x Napas (Agresif)
+            tp2_raw = curr_p * (1 + (base_step * 1.8 * power_boost))
+            # TP3: 3x Napas (Moon shot)
+            tp3_raw = curr_p * (1 + (base_step * 3.0 * power_boost))
+            
         elif "DISTRIBUTION" in signal:
-            # UNTUK SELL: TP3 harus paling rendah harganya
-            tp1_raw = curr_p * 0.97
-            tp2_raw = curr_p - (curr_p * whale_strength * 0.15 * vol_factor)
-            tp3_raw = curr_p - (curr_p * whale_strength * 0.30 * vol_factor) # Pasti lebih rendah dari TP2
+            tp1_raw = curr_p * (1 - base_step)
+            tp2_raw = curr_p * (1 - (base_step * 1.8 * power_boost))
+            tp3_raw = curr_p * (1 - (base_step * 3.0 * power_boost))
         else:
-            tp1_raw = tp2_raw = tp3_raw = df['sma_20'].iloc[-1]
+            tp1_raw = tp2_raw = tp3_raw = curr_p
             
 
         grade = "C (LOW)"
