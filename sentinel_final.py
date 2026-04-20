@@ -233,39 +233,43 @@ def whale_and_anomaly_detector():
 @bot.message_handler(commands=['cek'])
 def cmd_deep_cek(m):
     try:
-        # Ambil nama koin dari chat (contoh: /cek btc)
-        coin = m.text.split()[1].upper().replace("IDR", "")
+        # Ambil nama koin dan bersihkan teks
+        text_parts = m.text.split()
+        if len(text_parts) < 2:
+            bot.reply_to(m, "Format salah. Gunakan: `/cek btc` atau `/cek pepe`")
+            return
+
+        coin = text_parts[1].upper().replace("IDR", "")
         symbol = f"{coin}/IDR"
         
         bot.send_chat_action(m.chat.id, 'typing')
         analysis = get_market_analysis(symbol)
         
         if analysis:
-            # Emoji status untuk RSI
-            rsi_emoji = "📉" if analysis['rsi'] < 40 else "📈" if analysis['rsi'] > 60 else "🔵"
+            # Emoji status berdasarkan RSI
+            rsi_emoji = "📉" if analysis['rsi'] < 40 else "📈" if analysis['rsi'] > 60 else "⚖️"
+            grade_icon = "🌟" if "A+" in analysis['grade'] else "⚠️"
             
             res = (
                 f"🧠 **DEEP ANALYSIS: {coin}**\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"📢 **KESIMPULAN: {analysis['signal']}**\n\n"
-                f"💰 **Harga Saat Ini:**\n"
-                f"💵 USD: `${analysis['price_usd']:.10f}`\n"
-                f"🇮🇩 IDR: `Rp{analysis['price_idr']:,.0f}`\n\n"
+                f"🏆 Grade: **{analysis['grade']} {grade_icon}**\n"
+                f"📢 Signal: **{analysis['signal']}**\n\n"
+                f"💵 Price Entry: `${analysis['price_usd']:.8f}`\n"
+                f"🎯 **TP1: `${analysis['tp1_usd']:.8f}`**\n"
+                f"🚀 **TP2: `${analysis['tp2_usd']:.8f}`**\n"
+                f"🌌 **TP3: `${analysis['tp3_usd']:.8f}`**\n\n"
                 f"📊 **Metrik Teknis:**\n"
                 f"{rsi_emoji} RSI: `{analysis['rsi']:.2f}`\n"
-                f"🐳 Power: `{analysis['mpi']:.1f}%` (B/S)\n"
-                f"⚡ Vol Surge: `{analysis['vol_spike']:.1f}x` vs Rata-rata\n\n"
-                f"🗺️ **Level Psikologis:**\n"
-                f"🧱 Resistance: `Rp{analysis['resistance']:,.0f}`\n"
-                f"🕳️ Support: `Rp{analysis['support']:,.0f}`\n"
-                f"━━━━━━━━━━━━━━━━━━━━\n"
-                f"💡 *Saran: {'Segera pantau chart' if analysis['vol_spike'] > 2 else 'Market masih stabil'}*"
+                f"🐳 Power: `{analysis['mpi']:.1f}%` (MPI)\n"
+                f"⚡ Vol Surge: `{analysis['vol_spike']:.1f}x` (VITAL)\n"
+                f"━━━━━━━━━━━━━━━━━━━━"
             )
             bot.send_message(m.chat.id, res, parse_mode='Markdown')
         else:
-            bot.reply_to(m, f"❌ Data `{coin}` tidak ditemukan atau volume terlalu rendah.")
+            bot.reply_to(m, f"❌ Data `{coin}` tidak ditemukan atau volume terlalu rendah untuk dianalisa.")
     except Exception as e:
-        bot.reply_to(m, "Format salah. Gunakan: `/cek btc` atau `/cek pepe`")
+        bot.reply_to(m, f"⚠️ Terjadi kesalahan teknis: {str(e)}")
 
     try:
         coin = m.text.split()[1].upper().replace("IDR", "")
