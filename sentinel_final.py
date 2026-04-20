@@ -28,6 +28,16 @@ W = '\033[0m'   # Reset (Putih)
 
 last_alerts = {}
 active_alerts = {}
+def check_auth(username, password):
+    # Username bebas, Password diset sesuai request lo
+    return username == "admin" and password == "12345"
+
+def authenticate():
+    return Response(
+        'Masukkan Password Sentinel v12.0\n'
+        'Akses ditolak!', 401,
+        {'WWW-Authenticate': 'Basic realm="Login Required"'})
+    
 
 WA_API_KEY = "ISI_API_KEY_LO_DISINI" 
 
@@ -115,12 +125,13 @@ def get_market_analysis(symbol):
             
 
         grade = "C (LOW)"
-        if (mpi > 65 or mpi < 35) and vol_spike_ratio > 1.5:
+        # Syarat A+ : Power harus sinkron dengan arah sinyal
+        if "ACCUMULATION" in signal and mpi > 65 and vol_spike_ratio > 1.5:
+            grade = "A+ (PERFECT)"
+        elif "DISTRIBUTION" in signal and mpi < 35 and vol_spike_ratio > 1.5:
             grade = "A+ (PERFECT)"
         elif (mpi > 65 or mpi < 35) and vol_spike_ratio <= 1.5:
             grade = "B (EARLY)"
-        elif (45 <= mpi <= 55) and vol_spike_ratio > 2.0:
-            grade = "B (CHAOS/NOISE)"
 
         return {
             'price_usd': (curr_p / current_usd_rate) * 0.95,
@@ -275,10 +286,6 @@ def cmd_deep_cek(m):
             bot.reply_to(m, f"❌ Data `{coin}` tidak ditemukan atau volume terlalu rendah untuk dianalisa.")
     except Exception as e:
         bot.reply_to(m, f"⚠️ Terjadi kesalahan teknis: {str(e)}")
-
-    try:
-        coin = m.text.split()[1].upper().replace("IDR", "")
-        symbol = f"{coin}/IDR"
         
         bot.send_chat_action(m.chat.id, 'typing')
         analysis = get_market_analysis(symbol)
@@ -302,33 +309,36 @@ def cmd_deep_cek(m):
     except:
         bot.reply_to(m, "Gunakan: `/cek btc`")
 
-@app.route('/api/intelligence') # Pastikan baris ini ada dan tidak typo
+@app.route('/api/intelligence')
 def get_intelligence():
-    # Proteksi API agar data nggak bisa ditembak langsung tanpa login
     auth = request.authorization
     if not auth or not check_auth(auth.username, auth.password):
-        return jsonify({"error": "Unauthorized"}), 401
+        return authenticate() # Pakai authenticate() agar muncul popup login
     
-    global active_alerts
-    reports = []
-    # Urutkan berdasarkan waktu terbaru
-    all_data = sorted(active_alerts.items(), key=lambda x: x[1].get('time', ''), reverse=True)
-    
-    for coin, info in all_data:
-        reports.append({
-            "asset": coin,
-            "signal": info.get('signal', 'N/A'),
-            "grade": info.get('grade', 'C'),
-            "time": info.get('time', '--:--:--'),
-            "price": f"{info.get('price_usd', 0):.8f}",
-            "tp1": f"{info.get('tp1_usd', 0):.8f}",
-            "tp2": f"{info.get('tp2_usd', 0):.8f}",
-            "tp3": f"{info.get('tp3_usd', 0):.8f}",
-            "rsi": f"{info.get('rsi', 0):.2f}",
-            "mpi": f"{info.get('mpi', 0):.1f}",
-            "vol": f"{info.get('vol_spike', 0):.1f}"
-        })
-    return jsonify({"reports": reports})
+    try:
+        global active_alerts
+        # Gunakan .copy() biar gak bentrok pas bot lagi nulis data
+        current_data = active_alerts.copy()
+        reports = []
+        all_data = sorted(current_data.items(), key=lambda x: x[1].get('time', ''), reverse=True)
+        
+        for coin, info in all_data:
+            reports.append({
+                "asset": coin,
+                "signal": info.get('signal', 'N/A'),
+                "grade": info.get('grade', 'C'),
+                "time": info.get('time', '--:--:--'),
+                "price": f"{info.get('price_usd', 0):.8f}",
+                "tp1": f"{info.get('tp1_usd', 0):.8f}",
+                "tp2": f"{info.get('tp2_usd', 0):.8f}",
+                "tp3": f"{info.get('tp3_usd', 0):.8f}",
+                "rsi": f"{info.get('rsi', 0):.2f}",
+                "mpi": f"{info.get('mpi', 0):.1f}",
+                "vol": f"{info.get('vol_spike', 0):.1f}"
+            })
+        return jsonify({"reports": reports})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
     
 if __name__ == "__main__":
     fetch_all_markets()
