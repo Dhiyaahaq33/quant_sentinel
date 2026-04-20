@@ -96,20 +96,18 @@ def get_market_analysis(symbol):
         whale_strength = mpi / 100
         vol_factor = max(vol_spike_ratio, 1.0)
         
-        # Logika Target Berlapis (Markup -5% akan diaplikasikan di return)
         if "ACCUMULATION" in signal:
-            # TP1: Conservative (3% - Area Resistance Terdekat)
             tp1_raw = curr_p * 1.03
-            # TP2: Aggressive (Berdasarkan Whale Power & Volume)
             tp2_raw = curr_p + (curr_p * whale_strength * 0.15 * vol_factor)
-            # TP3: Moon Shot (Menggunakan Volatility Expansion 2.5x dari TP2)
-            tp3_raw = curr_p + (curr_p * whale_strength * 0.25 * math.sqrt(vol_factor))
+            tp3_raw = curr_p + (curr_p * whale_strength * 0.30 * vol_factor) # Lebih tinggi dari TP2
         elif "DISTRIBUTION" in signal:
+            # UNTUK SELL: TP3 harus paling rendah harganya
             tp1_raw = curr_p * 0.97
             tp2_raw = curr_p - (curr_p * whale_strength * 0.15 * vol_factor)
-            tp3_raw = curr_p - (curr_p * whale_strength * 0.25 * math.sqrt(vol_factor))
+            tp3_raw = curr_p - (curr_p * whale_strength * 0.30 * vol_factor) # Pasti lebih rendah dari TP2
         else:
             tp1_raw = tp2_raw = tp3_raw = df['sma_20'].iloc[-1]
+            
 
         # 6. RETURN DATA (Markup -5% sudah termasuk)
         return {
