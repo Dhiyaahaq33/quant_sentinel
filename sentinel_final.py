@@ -184,6 +184,9 @@ def whale_and_anomaly_detector():
                 if "NEUTRAL" in current_signal:
                     continue
 
+                mpi = data.get('mpi', 50)
+                vol_spike_ratio = data.get('vol_spike', 0)
+
                 grade = "C (LOW)"
                 if (mpi > 65 or mpi < 35) and vol_spike_ratio > 1.5:
                     grade = "A+ (PERFECT)"
@@ -194,44 +197,38 @@ def whale_and_anomaly_detector():
 
         # --- TELEGRAM AUTO-FILTER (Hanya Grade A+) ---
                 if grade == "A+ (PERFECT)":
-                    color_theme = "🟢" if "ACCUMULATION" in signal else "🔴"
+                    color_theme = "🟢" if "ACCUMULATION" in current_signal else "🔴"
                     msg = (
                         f"🌟 **SENTINEL HIGH-PRIORITY ALERT** 🌟\n"
                         f"━━━━━━━━━━━━━━━━━━━━\n"
                         f"🪙 Asset: `{coin_name}`\n"
                         f"🏆 Grade: **{grade}** 🔥\n"
-                        f"📢 Signal: **{signal}**\n"
+                        f"📢 Signal: **{current_signal}**\n"
                         f"💵 Adj. Entry: `${data['price_usd']:.8f}`\n"
                         f"🎯 **TP1: `${data['tp1_usd']:.8f}`**\n"
                         f"🚀 **TP2: `${data['tp2_usd']:.8f}`**\n"
                         f"🌌 **TP3: `${data['tp3_usd']:.8f}`**\n"
                         f"🐳 Power: `{mpi:.1f}%` | ⚡ Vol: `{vol_spike_ratio:.1f}x`"
                     )
-                    try:
-                # Tambahkan tombol chart
-                        markup = InlineKeyboardMarkup()
-                        markup.add(InlineKeyboardButton("📊 View Chart", url=f"https://indodax.com/market/{coin_name}IDR"))
-                        bot.send_message(CHAT_ID, msg, parse_mode='Markdown', reply_markup=markup)
-                    except:
-                        pass
+
+                    markup = InlineKeyboardMarkup()
+                    markup.add(InlineKeyboardButton("📊 View Chart", url=f"https://indodax.com/market/{coin_name}IDR"))
                     
-                    # Kirim WA jika Vital
-                    vital_keywords = ["SUPER", "STRONG", "RALLY", "PANIC"]
-                    if any(key in current_signal for key in vital_keywords):
-                        wa_text = f"🚨 VITAL: {coin_name} - {current_signal}\nPrice: ${data['price_usd']:.8f}"
-                        send_wa_notif(wa_text)
-                        
-                except Exception as e:
-                    print(f"{R}[FAILURE]{W} Dispatch_Error: {str(e)}")
+                    try:
+                        bot.send_message(CHAT_ID, msg, parse_mode='Markdown', reply_markup=markup)
+                        print(f"{G}[SUCCESS]{W} Sent Grade A+ to Telegram: {coin_name}")
+                    except Exception as e:
+                        print(f"{R}[ERROR]{W} Telegram Dispatch Fail: {e}")
 
-                time.sleep(1) # Jeda aman antar koin
-
+                time.sleep(1) # Jeda antar koin
+                
             except Exception as e:
+                print(f"⚠️ Error loop pada {symbol}: {e}")
                 continue
-        
-        print(f"{C}[SYSTEM]{W} Scan_Cycle_Complete. Resting for 30s...")
-        time.sleep(30) # Jeda antar putaran market
 
+        print(f"{C}[SYSTEM]{W} Scan_Cycle_Complete. Resting for 30s...")
+        time.sleep(30)
+        
 # ================= 💬 INTERACTIVE COMMANDS =================
 @bot.message_handler(commands=['cek'])
 def cmd_deep_cek(m):
