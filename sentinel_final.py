@@ -41,7 +41,7 @@ active_alerts = {}
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 TOKEN = "8742774728:AAFwj7EM9Xr6zSbIuHpkJ__O6B0LonFFvu4"
-CHAT_ID = "6052270268"
+CHAT_ID = "6052270268", "7346722208"
 bot = telebot.TeleBot(TOKEN)
 exchange = ccxt.indodax({'enableRateLimit': True, 'verify': False})
 current_usd_rate = 16200 
