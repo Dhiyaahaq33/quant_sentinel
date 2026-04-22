@@ -4,3 +4,4 @@ pandas
 flask
 requests
 urllib3
+python-dotenv
