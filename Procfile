@@ -1,1 +1,1 @@
-worker: python sentinel_final.py
+web: python app.py
