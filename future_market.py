@@ -13,28 +13,24 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from dotenv import load_dotenv
 
 # ================== 🔐 LOAD DATA ENV ==================
-# Pastikan file DATA.env ada di folder yang sama
 load_dotenv("DATA.env")
 
 TOKEN = os.getenv("TOKEN_HIGH")
 CHAT_ID = os.getenv("CHAT_ID")
-WEB_PASSWORD = os.getenv("WEB_PASSWORD", "181268") # Default jika lupa diset
+WEB_PASSWORD = os.getenv("WEB_PASSWORD", "181268")
 
 if not TOKEN or not CHAT_ID:
-    raise ValueError(
-        "❌ Kritis: TOKEN_BNCMEXC / CHAT_ID belum diset di DATA.env."
-    )
+    raise ValueError("❌ Kritis: TOKEN / CHAT_ID belum diset di DATA.env.")
 
 app = Flask(__name__)
 
 # --- PROTEKSI WEB ---
 def check_auth(username, password):
-    # Username tetap admin, password narik dari ENV
     return username == "admin" and password == WEB_PASSWORD
 
 def authenticate():
     return Response(
-        'Masukkan Password Binance Intelligence\nAkses ditolak!', 401,
+        'Masukkan Password\nAkses ditolak!', 401,
         {'WWW-Authenticate': 'Basic realm="Login Required"'})
 
 @app.route('/')
@@ -50,17 +46,25 @@ last_alerts, active_alerts = {}, {}
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 bot = telebot.TeleBot(TOKEN)
-exchange = ccxt.indodax({'enableRateLimit': True, 'verify': False})
-current_usd_rate = 16200 
-ALL_IDR_SYMBOLS = []
+
+# ✅ FIX 1: Binance exchange
+exchange = ccxt.binance({'enableRateLimit': True})
+
+current_usd_rate = 16200
+
+# ✅ FIX 2: Rename variable ke USDT
+ALL_USDT_SYMBOLS = []
 
 # ================= 🧠 INTELLIGENCE ENGINE =================
 def fetch_all_markets():
-    global ALL_IDR_SYMBOLS
+    global ALL_USDT_SYMBOLS
     try:
         markets = exchange.load_markets()
-        ALL_IDR_SYMBOLS = [s for s in markets if s.endswith('/IDR')]
-        print(f"✅ Intelligence Engine Ready: {len(ALL_IDR_SYMBOLS)} Assets Scanned.")
+        # ✅ FIX 3: Filter USDT bukan IDR
+        ALL_USDT_SYMBOLS = [s for s in markets if s.endswith('/USDT')]
+        # Batasi 100 pair teratas untuk hindari rate limit
+        ALL_USDT_SYMBOLS = ALL_USDT_SYMBOLS[:100]
+        print(f"✅ Binance Intelligence Ready: {len(ALL_USDT_SYMBOLS)} Assets Scanned.")
     except Exception as e:
         print(f"❌ Error fetch markets: {e}")
 
@@ -70,14 +74,12 @@ def get_market_analysis(symbol):
         if not ohlcv or len(ohlcv) < 20: return None        
         df = pd.DataFrame(ohlcv, columns=['ts', 'open', 'high', 'low', 'close', 'vol'])
         
-        # Indikator Dasar
         df['sma_20'] = df['close'].rolling(window=20).mean()
         delta = df['close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
         df['rsi'] = 100 - (100 / (1 + (gain / loss)))
         
-        # MPI & Vol Spike
         green_vol = df[df['close'] > df['open']]['vol'].sum()
         red_vol = df[df['close'] < df['open']]['vol'].sum()
         mpi = (green_vol / (green_vol + red_vol)) * 100 if (green_vol + red_vol) > 0 else 50
@@ -92,17 +94,21 @@ def get_market_analysis(symbol):
 
         curr_p = last['close']
         
-        # Adaptive TP
         df['range_pct'] = (df['high'] - df['low']) / df['low']
         avg_range = df['range_pct'].tail(20).mean()
         base_step = max(min(avg_range, 0.08), 0.01)
         power_multiplier = 1.0 + (vol_spike_ratio / 10)
 
         if "ACCUMULATION" in signal:
-            tp1_raw, tp2_raw, tp3_raw = curr_p*(1+base_step), curr_p*(1+base_step*1.8*power_multiplier), curr_p*(1+base_step*3.5*power_multiplier)
+            tp1_raw = curr_p * (1 + base_step)
+            tp2_raw = curr_p * (1 + base_step * 1.8 * power_multiplier)
+            tp3_raw = curr_p * (1 + base_step * 3.5 * power_multiplier)
         elif "DISTRIBUTION" in signal:
-            tp1_raw, tp2_raw, tp3_raw = curr_p*(1-base_step), curr_p*(1-base_step*1.8*power_multiplier), curr_p*(1-base_step*3.5*power_multiplier)
-        else: tp1_raw = tp2_raw = tp3_raw = curr_p
+            tp1_raw = curr_p * (1 - base_step)
+            tp2_raw = curr_p * (1 - base_step * 1.8 * power_multiplier)
+            tp3_raw = curr_p * (1 - base_step * 3.5 * power_multiplier)
+        else:
+            tp1_raw = tp2_raw = tp3_raw = curr_p
 
         grade = "C (LOW)"
         if "ACCUMULATION" in signal and mpi > 65 and vol_spike_ratio > 1.5: grade = "A+ (PERFECT)"
@@ -110,12 +116,14 @@ def get_market_analysis(symbol):
         elif (mpi > 65 or mpi < 35) and vol_spike_ratio <= 1.5: grade = "B (EARLY)"
 
         return {
-            'price_usd': (curr_p / current_usd_rate) * 0.95,
-            'price_idr': curr_p,
-            'tp1_usd': (tp1_raw / current_usd_rate) * 0.95,
-            'tp2_usd': (tp2_raw / current_usd_rate) * 0.95,
-            'tp3_usd': (tp3_raw / current_usd_rate) * 0.95,
-            'rsi': last['rsi'], 'mpi': mpi, 'signal': signal, 'vol_spike': vol_spike_ratio, 'grade': grade
+            # ✅ FIX 4: Harga sudah USD, tidak perlu konversi
+            'price_usd': curr_p,
+            'price_idr': curr_p * current_usd_rate,
+            'tp1_usd': tp1_raw,
+            'tp2_usd': tp2_raw,
+            'tp3_usd': tp3_raw,
+            'rsi': last['rsi'], 'mpi': mpi, 'signal': signal,
+            'vol_spike': vol_spike_ratio, 'grade': grade
         }
     except Exception as e:
         print(f"⚠️ Error analysis {symbol}: {e}")
@@ -124,7 +132,8 @@ def get_market_analysis(symbol):
 # ================= 🐋 SCANNER ENGINE =================
 def whale_and_anomaly_detector():
     while True:
-        for symbol in ALL_IDR_SYMBOLS:
+        # ✅ FIX 5: Loop pakai ALL_USDT_SYMBOLS
+        for symbol in ALL_USDT_SYMBOLS:
             try:
                 data = get_market_analysis(symbol)
                 if data is None: continue
@@ -149,10 +158,11 @@ def whale_and_anomaly_detector():
                             f"🐳 Power: `{data['mpi']:.1f}%` | ⚡ Vol: `{data['vol_spike']:.1f}x`"
                         )
                         markup = InlineKeyboardMarkup()
-                        markup.add(InlineKeyboardButton("📊 View Chart", url=f"https://indodax.com/market/{coin_name}IDR"))
+                        # ✅ FIX 6: URL chart ke Binance
+                        markup.add(InlineKeyboardButton("📊 View Chart", url=f"https://www.binance.com/en/trade/{coin_name}_USDT"))
                         bot.send_message(CHAT_ID, msg, parse_mode='Markdown', reply_markup=markup)
                         last_alerts[coin_name] = data['signal']
-                time.sleep(1)
+                time.sleep(0.5)  # ✅ FIX 7: Delay lebih kecil, tapi cukup aman
             except: continue
         time.sleep(30)
 
@@ -164,13 +174,23 @@ def cmd_deep_cek(m):
         if len(parts) < 2:
             bot.reply_to(m, "Gunakan: `/cek btc`")
             return
-        coin = parts[1].upper().replace("IDR", "")
-        analysis = get_market_analysis(f"{coin}/IDR")
+        # ✅ FIX 8: Pair USDT bukan IDR
+        coin = parts[1].upper().replace("USDT", "")
+        analysis = get_market_analysis(f"{coin}/USDT")
         if analysis:
-            res = f"🧠 **ANALYSIS: {coin}**\n🏆 Grade: **{analysis['grade']}**\n📢 Signal: **{analysis['signal']}**\n💵 Price: `${analysis['price_usd']:.8f}`\n🎯 TP1: `${analysis['tp1_usd']:.8f}`\n📊 RSI: `{analysis['rsi']:.2f}`\n🐳 Power: `{analysis['mpi']:.1f}%`"
+            res = (f"🧠 **ANALYSIS: {coin}**\n"
+                   f"🏆 Grade: **{analysis['grade']}**\n"
+                   f"📢 Signal: **{analysis['signal']}**\n"
+                   f"💵 Price: `${analysis['price_usd']:.8f}`\n"
+                   f"🎯 TP1: `${analysis['tp1_usd']:.8f}`\n"
+                   f"📊 RSI: `{analysis['rsi']:.2f}`\n"
+                   f"🐳 Power: `{analysis['mpi']:.1f}%`")
             bot.send_message(m.chat.id, res, parse_mode='Markdown')
-        else: bot.reply_to(m, "❌ Data `{coin}` tidak ditemukan.")
-    except Exception as e: bot.reply_to(m, f"⚠️ Error: {str(e)}")
+        else:
+            # ✅ FIX 9: f-string bug di original (coin tidak terbaca)
+            bot.reply_to(m, f"❌ Data `{coin}` tidak ditemukan.")
+    except Exception as e:
+        bot.reply_to(m, f"⚠️ Error: {str(e)}")
 
 @app.route('/api/intelligence')
 def get_intelligence():
