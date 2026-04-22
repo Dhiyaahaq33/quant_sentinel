@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 # Pastikan file DATA.env ada di folder yang sama
 load_dotenv("DATA.env")
 
-TOKEN = os.getenv("TOKEN_BNCMEXC")
+TOKEN = os.getenv("TOKEN_HIGH")
 CHAT_ID = os.getenv("CHAT_ID")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "181268") # Default jika lupa diset
 
