@@ -575,8 +575,11 @@
 <div class="header">
   <div class="header-logo">APEX<span>/</span>INTELLIGENCE</div>
   <div class="header-status">
-    <div class="pulse-dot"></div>
+    <div class="pulse-dot" id="ws-dot"></div>
     <div class="status-text" id="header-time">INITIALIZING...</div>
+    <div style="font-family:'Space Mono',monospace; font-size:0.65em; color:var(--text3);">
+      WS <span id="ws-status" style="color:var(--yellow)">CONNECTING</span>
+    </div>
   </div>
 </div>
 
@@ -693,10 +696,14 @@
 // ============================================================
 // STATE
 // ============================================================
-let activeTF = 'AGG';
-let marketData = [];
+let activeTF    = 'AGG';
+let marketData  = [];
 let accountData = {};
-let pieChart = null;
+let pieChart    = null;
+let rtPrices    = {};   // real-time prices from /api/prices
+let wsConnected = false;
+let lastPriceTs = 0;
+
 const PIE_COLORS = [
   '#00e5a0','#3d9eff','#f5c518','#ff4060','#9d6fff',
   '#ff8c42','#00c8e5','#ff6b8a','#a8e063','#e056fd'
@@ -719,12 +726,60 @@ async function fetchMarket() {
   try {
     const r = await fetch('/api/market');
     const d = await r.json();
-    if (d.data) {
-      marketData = d.data;
+    if (d.data && d.data.length > 0) {
+      // Inject latest real-time prices into market data
+      marketData = d.data.map(item => {
+        const rt = rtPrices[item.symbol];
+        if (rt) item.price = rt;
+        return item;
+      });
       document.getElementById('header-time').textContent =
         `LIVE · ${d.timestamp} UTC · ${marketData.length} ASSETS`;
     }
   } catch(e) {}
+}
+
+async function fetchPrices() {
+  /** Lightweight poll — just prices, updates cards in real-time without full re-render */
+  try {
+    const r = await fetch('/api/prices');
+    const d = await r.json();
+    if (d.prices && Object.keys(d.prices).length > 0) {
+      rtPrices = d.prices;
+      lastPriceTs = Date.now();
+      setWsStatus(true);
+      // Update price labels on cards without full re-render
+      updateCardPrices();
+    }
+  } catch(e) {}
+}
+
+function setWsStatus(connected) {
+  wsConnected = connected;
+  const dot    = document.getElementById('ws-dot');
+  const status = document.getElementById('ws-status');
+  if (connected) {
+    dot.style.background    = 'var(--green)';
+    dot.style.boxShadow     = '0 0 8px var(--green)';
+    status.textContent      = 'LIVE';
+    status.style.color      = 'var(--green)';
+  } else {
+    dot.style.background    = 'var(--yellow)';
+    dot.style.boxShadow     = '0 0 8px var(--yellow)';
+    status.textContent      = 'BUFFERING';
+    status.style.color      = 'var(--yellow)';
+  }
+}
+
+function updateCardPrices() {
+  /** Update price text on existing cards without full DOM rebuild */
+  document.querySelectorAll('[data-symbol]').forEach(el => {
+    const sym = el.getAttribute('data-symbol');
+    const price = rtPrices[sym + '/USDT'] || rtPrices[sym];
+    if (price) {
+      el.textContent = `$${parseFloat(price).toFixed(4)}`;
+    }
+  });
 }
 
 async function fetchAccount() {
@@ -974,7 +1029,7 @@ function renderFeed() {
       <div class="card-header">
         <div>
           <div class="card-symbol">${item.symbol.replace('/USDT','')}<span style="color:var(--text3);font-size:0.6em;">/USDT</span></div>
-          <div class="card-price">$${parseFloat(item.price).toFixed(4)}</div>
+          <div class="card-price" data-symbol="${item.symbol.replace('/USDT','')}" >$${parseFloat(item.price).toFixed(4)}</div>
         </div>
         <div class="card-right">
           <div class="card-direction ${dirBadge}">${dirLabel}</div>
@@ -1044,8 +1099,10 @@ function renderFeed() {
           </div>
         </div>
         <div class="fut-chip">
-          <div class="fut-label">UPDATED</div>
-          <div class="fut-val">${item.timestamp || '—'}</div>
+          <div class="fut-label">OB BID%</div>
+          <div class="fut-val" style="color:${(item.orderbook?.ob_imbalance||0.5)>0.55?'var(--green)':(item.orderbook?.ob_imbalance||0.5)<0.45?'var(--red)':'var(--text2)'}">
+            ${item.orderbook ? (item.orderbook.ob_imbalance*100).toFixed(0)+'%' : '—'}
+          </div>
         </div>
       </div>
     `;
@@ -1085,8 +1142,19 @@ async function tick() {
   prevPositionCount = pos;
 }
 
+// Check WS staleness
+function checkWsHealth() {
+  if (lastPriceTs > 0 && Date.now() - lastPriceTs > 10000) {
+    setWsStatus(false);
+  }
+}
+
+// Boot
 tick();
-setInterval(tick, 5000);
+setInterval(tick, 10000);        // full re-render every 10s
+setInterval(fetchPrices, 1000);  // RT price refresh every 1s
+setInterval(checkWsHealth, 5000);
+
 </script>
 </body>
 </html>
