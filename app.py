@@ -5,14 +5,19 @@ import telebot
 from flask import Flask, jsonify, render_template, request, Response
 from datetime import datetime, timezone
 from dotenv import load_dotenv
-from engine import analyze_symbol, exchange, TIMEFRAMES
+from engine import (
+    analyze_symbol, TIMEFRAMES,
+    fetch_ohlcv_all, ohlcv_refresh_loop,
+    start_websocket, funding_poll_loop,
+    ws_prices, ws_lock, ohlcv_cache
+)
 from trader import (load_account, save_account, open_position, update_positions,
                     close_position_manual, get_stats, get_unrealized_pnl)
 
 load_dotenv("DATA.env")
 
-TOKEN   = os.getenv("TOKEN_HIGH")
-CHAT_ID = os.getenv("CHAT_ID")
+TOKEN        = os.getenv("TOKEN_HIGH")
+CHAT_ID      = os.getenv("CHAT_ID")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "181268")
 
 app = Flask(__name__)
@@ -21,10 +26,10 @@ bot = telebot.TeleBot(TOKEN) if TOKEN else None
 # ============================================================
 # 🗄️ SHARED STATE
 # ============================================================
-market_data   = {}          # symbol -> analysis result
-current_prices = {}         # symbol -> latest price
-last_signals  = {}          # symbol -> last direction to avoid spam
-scan_lock     = threading.Lock()
+market_data    = {}   # symbol -> latest analysis result
+current_prices = {}   # symbol -> latest price
+last_signals   = {}   # symbol -> last sig key (spam guard)
+scan_lock      = threading.Lock()
 
 WATCHLIST = [
     'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT',
@@ -46,9 +51,20 @@ def require_auth():
     return not auth or not check_auth(auth.username, auth.password)
 
 # ============================================================
-# 📡 SCANNER LOOP
+# 📡 SCANNER LOOP (lightweight — uses cached data)
 # ============================================================
 def scanner_loop():
+    """
+    Now that OHLCV is cached and prices come via WebSocket,
+    analysis is purely CPU — no API calls per symbol per loop.
+    OI & L/S ratio REST calls remain (1 per symbol per cycle, ~15s total).
+    """
+    # Wait for initial OHLCV cache to be ready
+    while not ohlcv_cache:
+        print("⏳ Waiting for OHLCV cache...")
+        time.sleep(2)
+
+    print("🔁 Scanner loop started")
     while True:
         for symbol in WATCHLIST:
             try:
@@ -57,16 +73,16 @@ def scanner_loop():
                     continue
 
                 with scan_lock:
-                    market_data[symbol] = result
+                    market_data[symbol]    = result
                     current_prices[symbol] = result['price']
 
-                # Auto trade logic
+                # Update positions with latest prices
                 account = load_account()
-                closed = update_positions(account, current_prices)
-
+                closed  = update_positions(account, current_prices)
                 for c in closed:
                     notify_closed(c)
 
+                # Auto-trade on strong signals
                 if result['grade'] in ('A+', 'B') and result['agg_direction'] != 'NEUTRAL':
                     sig_key = f"{symbol}_{result['agg_direction']}"
                     if last_signals.get(symbol) != sig_key:
@@ -87,8 +103,9 @@ def scanner_loop():
             except Exception as e:
                 print(f"Scanner error {symbol}: {e}")
 
-            time.sleep(1)
-        time.sleep(15)
+            time.sleep(0.3)   # much shorter — no REST per symbol
+
+        time.sleep(5)   # full cycle every ~5s
 
 # ============================================================
 # 📬 TELEGRAM NOTIFICATIONS
@@ -119,7 +136,7 @@ def notify_opened(pos):
 def notify_closed(pos):
     if not bot or not CHAT_ID:
         return
-    pnl = pos.get('realized_pnl', 0)
+    pnl   = pos.get('realized_pnl', 0)
     emoji = "✅" if pnl >= 0 else "❌"
     msg = (
         f"{emoji} *POSITION CLOSED*\n"
@@ -138,8 +155,8 @@ def notify_closed(pos):
 def send_info_report():
     if not bot or not CHAT_ID:
         return
-    account = load_account()
-    stats = get_stats(account, current_prices)
+    account  = load_account()
+    stats    = get_stats(account, current_prices)
     positions = account['positions']
 
     pos_text = ""
@@ -155,7 +172,6 @@ def send_info_report():
             f"   Entry: `${pos['entry_price']:.4f}` | Now: `${curr_p:.4f}`\n"
             f"   PnL: `${pnl:+.4f}` | Margin: `${pos['margin']:.2f}`\n"
         )
-
     if not pos_text:
         pos_text = "\n_No open positions_"
 
@@ -248,29 +264,37 @@ def api_market():
         data = list(market_data.values())
     return jsonify({"data": data, "timestamp": datetime.now(timezone.utc).strftime('%H:%M:%S')})
 
+@app.route('/api/prices')
+def api_prices():
+    """Lightweight endpoint: just real-time prices from WebSocket."""
+    if require_auth():
+        return jsonify({"error": "Unauthorized"}), 401
+    with ws_lock:
+        prices = dict(ws_prices)
+    return jsonify({"prices": prices})
+
 @app.route('/api/account')
 def api_account():
     if require_auth():
         return jsonify({"error": "Unauthorized"}), 401
     account = load_account()
-    stats = get_stats(account, current_prices)
+    stats   = get_stats(account, current_prices)
     positions_list = []
     for pos_id, pos in account['positions'].items():
         curr_p = current_prices.get(pos['symbol'], pos['entry_price'])
         if pos['direction'] == 'LONG':
-            upnl = (curr_p - pos['entry_price']) / pos['entry_price'] * pos['notional']
+            upnl    = (curr_p - pos['entry_price']) / pos['entry_price'] * pos['notional']
             pnl_pct = (curr_p - pos['entry_price']) / pos['entry_price'] * 20 * 100
         else:
-            upnl = (pos['entry_price'] - curr_p) / pos['entry_price'] * pos['notional']
+            upnl    = (pos['entry_price'] - curr_p) / pos['entry_price'] * pos['notional']
             pnl_pct = (pos['entry_price'] - curr_p) / pos['entry_price'] * 20 * 100
         positions_list.append({**pos, 'current_price': curr_p,
                                 'unrealized_pnl': round(upnl, 4),
                                 'pnl_pct': round(pnl_pct, 2)})
-
     return jsonify({
-        "stats": stats,
+        "stats":     stats,
         "positions": positions_list,
-        "history": account['history'][-10:]
+        "history":   account['history'][-10:]
     })
 
 @app.route('/api/close/<pos_id>', methods=['POST'])
@@ -291,18 +315,34 @@ def hourly_reporter():
         time.sleep(3600)
         send_info_report()
 
+# ============================================================
+# 🚀 STARTUP
+# ============================================================
 if __name__ == "__main__":
-    print("🚀 Starting Trading Bot...")
+    print("🚀 Starting APEX Trading Bot...")
 
-    scanner_thread = threading.Thread(target=scanner_loop, daemon=True)
-    scanner_thread.start()
+    # 1. Fetch OHLCV first (REST, one-time)
+    fetch_ohlcv_all()
 
-    reporter_thread = threading.Thread(target=hourly_reporter, daemon=True)
-    reporter_thread.start()
+    # 2. Start WebSocket (real-time prices + klines + orderbook)
+    start_websocket()
 
+    # 3. Start funding rate poller (REST, every 30 min)
+    threading.Thread(target=funding_poll_loop, daemon=True).start()
+
+    # 4. Start OHLCV refresh (REST, every 5 min)
+    threading.Thread(target=ohlcv_refresh_loop, daemon=True).start()
+
+    # 5. Start scanner loop (pure CPU, uses cached data)
+    threading.Thread(target=scanner_loop, daemon=True).start()
+
+    # 6. Hourly Telegram report
+    threading.Thread(target=hourly_reporter, daemon=True).start()
+
+    # 7. Telegram bot polling
     if bot:
-        bot_thread = threading.Thread(target=lambda: bot.infinity_polling(), daemon=True)
-        bot_thread.start()
+        threading.Thread(target=lambda: bot.infinity_polling(), daemon=True).start()
 
     port = int(os.environ.get("PORT", 8080))
+    print(f"🌐 Flask running on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
