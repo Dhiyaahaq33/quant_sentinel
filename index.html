@@ -496,8 +496,23 @@
       <button class="filter-btn" onclick="setFilter('B',this)">GRADE B</button>
     </div>
 
+    <!-- MARKET SUMMARY BAR -->
+    <div id="market-summary" style="display:none; padding:8px 16px; background:var(--bg3); border-bottom:1px solid var(--border); display:flex; gap:20px; font-family:'Space Mono',monospace; font-size:0.7em; flex-wrap:wrap;">
+      <span>🔍 SCANNING: <span id="sum-total" style="color:var(--text)">0</span> symbols</span>
+      <span>🟢 LONGS: <span id="sum-longs" style="color:var(--green)">0</span></span>
+      <span>🔴 SHORTS: <span id="sum-shorts" style="color:var(--red)">0</span></span>
+      <span>⭐ A+: <span id="sum-aplus" style="color:var(--yellow)">0</span></span>
+      <span style="color:var(--text3)">TOP <span id="sum-showing">0</span> SHOWN</span>
+    </div>
+
     <div class="feed-container" id="feed-container">
-      <div class="empty-state"><div>⟳</div>SCANNING MARKETS...</div>
+      <div id="startup-loading" style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px; gap:16px;">
+        <div style="font-family:'Space Mono',monospace; font-size:0.8em; color:var(--green); letter-spacing:2px;">⟳ INITIALIZING APEX ENGINE</div>
+        <div style="width:300px; height:4px; background:var(--border2); border-radius:2px; overflow:hidden;">
+          <div id="progress-bar" style="height:100%; width:0%; background:var(--green); transition:width 0.5s; border-radius:2px;"></div>
+        </div>
+        <div id="progress-text" style="font-family:'Space Mono',monospace; font-size:0.65em; color:var(--text2);">LOADING SYMBOLS...</div>
+      </div>
     </div>
 
   </div><!-- /main -->
@@ -542,6 +557,36 @@ function setFilter(f, el) {
 // ============================================================
 // FETCH DATA
 // ============================================================
+let startupDone = false;
+
+async function checkStartupStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    const pct = d.total > 0 ? Math.round(d.progress / d.total * 100) : 0;
+    document.getElementById('progress-bar').style.width = pct + '%';
+
+    if (d.phase === 'LOADING_OHLCV') {
+      document.getElementById('progress-text').textContent =
+        `LOADING OHLCV: ${d.progress}/${d.total} symbols (${pct}%)`;
+    } else if (d.phase === 'SCANNING') {
+      document.getElementById('progress-text').textContent =
+        `SCANNING MARKETS... ${d.scanned} analyzed`;
+      document.getElementById('progress-bar').style.width = '100%';
+    } else {
+      document.getElementById('progress-text').textContent =
+        `STARTING... loading ${d.watchlist} symbols`;
+    }
+
+    if (d.ready && d.scanned > 0) {
+      startupDone = true;
+      document.getElementById('startup-loading').style.display = 'none';
+      document.getElementById('market-summary').style.display = 'flex';
+    }
+    return d.ready;
+  } catch(e) { return false; }
+}
+
 async function fetchMarket() {
   try {
     const r = await fetch('/api/market');
@@ -553,7 +598,14 @@ async function fetchMarket() {
         return item;
       });
       document.getElementById('header-time').textContent =
-        `LIVE · ${d.timestamp} UTC · ${marketData.length} ASSETS`;
+        `LIVE · ${d.timestamp} UTC`;
+      // Update summary bar
+      document.getElementById('sum-total').textContent  = d.total_scanned || 0;
+      document.getElementById('sum-longs').textContent  = d.longs || 0;
+      document.getElementById('sum-shorts').textContent = d.shorts || 0;
+      document.getElementById('sum-aplus').textContent  = d.a_plus || 0;
+      document.getElementById('sum-showing').textContent = marketData.length;
+      document.getElementById('signal-count').textContent = d.total_scanned || marketData.length;
     }
   } catch(e) {}
 }
@@ -950,6 +1002,10 @@ function showToast(msg) {
 let prevPositionCount = 0;
 
 async function tick() {
+  if (!startupDone) {
+    const ready = await checkStartupStatus();
+    if (!ready) return; // don't fetch market yet if not ready
+  }
   await fetchMarket();
   await fetchAccount();
   renderFeed();
@@ -960,6 +1016,12 @@ async function tick() {
   }
   prevPositionCount = pos;
 }
+
+// Poll startup status fast until ready
+const startupInterval = setInterval(async () => {
+  if (startupDone) { clearInterval(startupInterval); return; }
+  await checkStartupStatus();
+}, 2000);
 
 function checkWsHealth() {
   if (lastPriceTs > 0 && Date.now() - lastPriceTs > 10000) setWsStatus(false);
