@@ -1,10 +1,8 @@
-pyTelegramBotAPI
+flask
 ccxt
 pandas
-flask
-requests
-urllib3
-python-dotenv
 numpy
-gunicorn
+requests
 websocket-client
+python-dotenv
+pyTelegramBotAPI
