@@ -9,23 +9,23 @@
   @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Rajdhani:wght@400;600;700&display=swap');
 
   :root {
-    --bg:       #040608;
-    --bg2:      #080c10;
-    --bg3:      #0d1219;
-    --border:   #141c26;
-    --border2:  #1e2d3d;
-    --green:    #00e5a0;
-    --green2:   #00b87a;
-    --red:      #ff4060;
-    --red2:     #cc2040;
-    --yellow:   #f5c518;
-    --blue:     #3d9eff;
-    --purple:   #9d6fff;
-    --text:     #c8d8e8;
-    --text2:    #607080;
-    --text3:    #3a5060;
-    --glow-g:   0 0 20px rgba(0,229,160,0.3);
-    --glow-r:   0 0 20px rgba(255,64,96,0.3);
+    --bg:      #040608;
+    --bg2:     #080c10;
+    --bg3:     #0d1219;
+    --border:  #141c26;
+    --border2: #1e2d3d;
+    --green:   #00e5a0;
+    --green2:  #00b87a;
+    --red:     #ff4060;
+    --red2:    #cc2040;
+    --yellow:  #f5c518;
+    --blue:    #3d9eff;
+    --purple:  #9d6fff;
+    --text:    #c8d8e8;
+    --text2:   #607080;
+    --text3:   #3a5060;
+    --glow-g:  0 0 20px rgba(0,229,160,0.3);
+    --glow-r:  0 0 20px rgba(255,64,96,0.3);
   }
 
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -43,13 +43,13 @@
   body::before {
     content: '';
     position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
+    inset: 0;
     background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
     pointer-events: none;
     z-index: 999;
   }
 
-  /* HEADER */
+  /* ── HEADER ── */
   .header {
     display: flex;
     align-items: center;
@@ -58,6 +58,7 @@
     background: var(--bg2);
     border-bottom: 1px solid var(--border2);
     position: sticky; top: 0; z-index: 100;
+    backdrop-filter: blur(6px);
   }
   .header-logo {
     font-family: 'Space Mono', monospace;
@@ -68,9 +69,7 @@
     text-shadow: var(--glow-g);
   }
   .header-logo span { color: var(--text2); }
-  .header-status {
-    display: flex; gap: 20px; align-items: center;
-  }
+  .header-status { display: flex; gap: 20px; align-items: center; }
   .pulse-dot {
     width: 8px; height: 8px;
     background: var(--green);
@@ -79,39 +78,34 @@
     animation: pulse 1.5s infinite;
   }
   @keyframes pulse {
-    0%,100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.4; transform: scale(0.8); }
+    0%,100% { opacity:1; transform:scale(1); }
+    50%      { opacity:0.4; transform:scale(0.8); }
   }
-  .status-text {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.75em;
-    color: var(--text2);
-  }
+  .status-text { font-family: 'Space Mono', monospace; font-size: 0.75em; color: var(--text2); }
 
-  /* LAYOUT */
+  /* ── LAYOUT ── */
   .layout {
     display: grid;
     grid-template-columns: 320px 1fr;
-    grid-template-rows: auto auto;
-    gap: 0;
+    grid-template-rows: auto;
     min-height: calc(100vh - 57px);
   }
 
-  /* SIDEBAR */
+  /* ── SIDEBAR ── */
   .sidebar {
     grid-row: 1 / -1;
     background: var(--bg2);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
-    gap: 0;
+    overflow-y: auto;
+    max-height: calc(100vh - 57px);
+    position: sticky;
+    top: 57px;
   }
 
-  /* PANEL BASE */
-  .panel {
-    border-bottom: 1px solid var(--border);
-    padding: 18px 20px;
-  }
+  /* PANEL */
+  .panel { border-bottom: 1px solid var(--border); padding: 18px 20px; }
   .panel-title {
     font-family: 'Space Mono', monospace;
     font-size: 0.65em;
@@ -122,18 +116,8 @@
   }
 
   /* ACCOUNT STATS */
-  .stat-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-  }
-  .stat-item { }
-  .stat-label {
-    font-size: 0.7em;
-    color: var(--text3);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-  }
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stat-label { font-size: 0.7em; color: var(--text3); text-transform: uppercase; letter-spacing: 1px; }
   .stat-value {
     font-family: 'Space Mono', monospace;
     font-size: 1.15em;
@@ -141,8 +125,8 @@
     color: var(--text);
     margin-top: 2px;
   }
-  .stat-value.green { color: var(--green); }
-  .stat-value.red   { color: var(--red); }
+  .stat-value.green  { color: var(--green); }
+  .stat-value.red    { color: var(--red); }
   .stat-value.yellow { color: var(--yellow); }
   .equity-big {
     font-family: 'Space Mono', monospace;
@@ -151,191 +135,113 @@
     color: var(--green);
     text-shadow: var(--glow-g);
     margin-bottom: 4px;
+    transition: color 0.4s;
   }
-  .equity-sub {
-    font-size: 0.75em;
-    color: var(--text2);
-  }
+  .equity-big.red { color: var(--red); text-shadow: var(--glow-r); }
+  .equity-sub { font-size: 0.75em; color: var(--text2); }
 
-  /* PIE CHART */
-  .pie-wrap {
-    position: relative;
-    width: 160px;
-    height: 160px;
-    margin: 0 auto 12px;
-  }
+  /* PIE */
+  .pie-wrap { position: relative; width: 160px; height: 160px; margin: 0 auto 12px; }
   .pie-center {
-    position: absolute;
-    top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center;
+    position: absolute; top: 50%; left: 50%;
+    transform: translate(-50%, -50%); text-align: center;
   }
-  .pie-center-val {
-    font-family: 'Space Mono', monospace;
-    font-size: 1em;
-    font-weight: 700;
-    color: var(--text);
-  }
-  .pie-center-label {
-    font-size: 0.6em;
-    color: var(--text3);
-    letter-spacing: 1px;
-  }
-  .pie-legend {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .legend-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 0.8em;
-  }
-  .legend-dot {
-    width: 8px; height: 8px;
-    border-radius: 2px;
-    flex-shrink: 0;
-  }
+  .pie-center-val { font-family: 'Space Mono', monospace; font-size: 1em; font-weight: 700; color: var(--text); }
+  .pie-center-label { font-size: 0.6em; color: var(--text3); letter-spacing: 1px; }
+  .pie-legend { display: flex; flex-direction: column; gap: 6px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.8em; }
+  .legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
   .legend-name { color: var(--text2); flex: 1; }
-  .legend-pct {
-    font-family: 'Space Mono', monospace;
-    color: var(--text);
-    font-size: 0.85em;
-  }
+  .legend-pct { font-family: 'Space Mono', monospace; font-size: 0.85em; }
 
   /* POSITIONS LIST */
   .positions-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    max-height: 340px;
-    overflow-y: auto;
+    display: flex; flex-direction: column; gap: 8px;
+    max-height: 340px; overflow-y: auto;
   }
   .position-card {
     background: var(--bg3);
     border: 1px solid var(--border2);
     border-radius: 6px;
     padding: 10px 12px;
-    transition: border-color 0.2s;
+    transition: border-color 0.2s, transform 0.15s;
   }
-  .position-card:hover { border-color: var(--border2); }
+  .position-card:hover { transform: translateX(2px); }
   .position-card.long  { border-left: 3px solid var(--green); }
   .position-card.short { border-left: 3px solid var(--red); }
-  .pos-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 6px;
-  }
-  .pos-symbol {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.9em;
-    font-weight: 700;
-    color: var(--text);
-  }
+  .pos-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .pos-symbol { font-family: 'Space Mono', monospace; font-size: 0.9em; font-weight: 700; color: var(--text); }
   .pos-badge {
-    font-size: 0.65em;
-    font-weight: 700;
-    padding: 2px 7px;
-    border-radius: 3px;
-    letter-spacing: 1px;
+    font-size: 0.65em; font-weight: 700;
+    padding: 2px 7px; border-radius: 3px; letter-spacing: 1px;
   }
   .badge-long  { background: rgba(0,229,160,0.15); color: var(--green); }
   .badge-short { background: rgba(255,64,96,0.15);  color: var(--red); }
-  .pos-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 4px;
-    font-size: 0.72em;
-  }
+  .pos-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; font-size: 0.72em; }
   .pos-field-label { color: var(--text3); }
   .pos-field-val   { font-family: 'Space Mono', monospace; color: var(--text); }
-  .pos-pnl-row {
-    margin-top: 6px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .pos-pnl {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.95em;
-    font-weight: 700;
-  }
-  .pos-pnl.pos  { color: var(--green); }
-  .pos-pnl.neg  { color: var(--red); }
+  .pos-pnl-row { margin-top: 6px; display: flex; justify-content: space-between; align-items: center; }
+  .pos-pnl { font-family: 'Space Mono', monospace; font-size: 0.95em; font-weight: 700; }
+  .pos-pnl.pos { color: var(--green); }
+  .pos-pnl.neg { color: var(--red); }
   .close-btn {
-    font-size: 0.65em;
-    padding: 3px 8px;
+    font-size: 0.65em; padding: 3px 8px;
     background: rgba(255,64,96,0.1);
     color: var(--red);
     border: 1px solid rgba(255,64,96,0.3);
-    border-radius: 3px;
-    cursor: pointer;
+    border-radius: 3px; cursor: pointer;
     font-family: 'Space Mono', monospace;
     transition: all 0.2s;
   }
   .close-btn:hover { background: rgba(255,64,96,0.25); }
 
-  /* TP PROGRESS */
-  .tp-bar {
-    display: flex;
-    gap: 3px;
-    margin-top: 5px;
-  }
-  .tp-seg {
-    flex: 1;
-    height: 3px;
-    background: var(--border2);
-    border-radius: 2px;
-    transition: background 0.5s;
-  }
-  .tp-seg.hit { background: var(--green); }
+  /* TP BAR */
+  .tp-bar { display: flex; gap: 3px; margin-top: 5px; }
+  .tp-seg { flex: 1; height: 3px; background: var(--border2); border-radius: 2px; transition: background 0.5s; }
+  .tp-seg.hit { background: var(--green); box-shadow: 0 0 6px rgba(0,229,160,0.5); }
 
-  /* MAIN AREA */
-  .main-area {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
+  /* ── MAIN AREA ── */
+  .main-area { display: flex; flex-direction: column; overflow: hidden; }
 
-  /* SIGNAL FEED */
+  /* FEED HEADER */
   .feed-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    display: flex; align-items: center; justify-content: space-between;
     padding: 14px 24px;
     background: var(--bg2);
     border-bottom: 1px solid var(--border);
     position: sticky; top: 57px; z-index: 50;
   }
-  .feed-title {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.7em;
-    letter-spacing: 3px;
-    color: var(--text3);
-  }
-  .tf-tabs {
-    display: flex;
-    gap: 4px;
-  }
+  .feed-title { font-family: 'Space Mono', monospace; font-size: 0.7em; letter-spacing: 3px; color: var(--text3); }
+  .tf-tabs { display: flex; gap: 4px; }
   .tf-tab {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.65em;
-    padding: 4px 10px;
-    border-radius: 4px;
-    cursor: pointer;
-    border: 1px solid var(--border2);
-    color: var(--text2);
-    background: transparent;
-    transition: all 0.2s;
-    letter-spacing: 1px;
+    font-family: 'Space Mono', monospace; font-size: 0.65em;
+    padding: 4px 10px; border-radius: 4px; cursor: pointer;
+    border: 1px solid var(--border2); color: var(--text2);
+    background: transparent; transition: all 0.2s; letter-spacing: 1px;
   }
   .tf-tab.active, .tf-tab:hover {
     background: rgba(0,229,160,0.1);
-    border-color: var(--green2);
-    color: var(--green);
+    border-color: var(--green2); color: var(--green);
   }
+
+  /* FILTER BAR — new addition */
+  .filter-bar {
+    display: flex; gap: 6px; align-items: center;
+    padding: 8px 24px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    font-family: 'Space Mono', monospace;
+    font-size: 0.65em;
+  }
+  .filter-btn {
+    padding: 3px 10px; border-radius: 3px; cursor: pointer; letter-spacing: 1px;
+    border: 1px solid var(--border2); color: var(--text2); background: transparent;
+    transition: all 0.15s;
+  }
+  .filter-btn.active { background: rgba(61,158,255,0.12); border-color: var(--blue); color: var(--blue); }
+  .filter-btn.f-long.active  { background: rgba(0,229,160,0.12); border-color: var(--green); color: var(--green); }
+  .filter-btn.f-short.active { background: rgba(255,64,96,0.12); border-color: var(--red); color: var(--red); }
+  .filter-sep { color: var(--text3); margin: 0 4px; }
 
   /* SIGNAL CARDS */
   .feed-container {
@@ -345,6 +251,7 @@
     gap: 12px;
     overflow-y: auto;
     flex: 1;
+    align-content: start;
   }
   .signal-card {
     background: var(--bg3);
@@ -353,11 +260,10 @@
     padding: 14px 16px;
     animation: slideIn 0.35s ease;
     transition: border-color 0.3s, transform 0.2s;
-    cursor: default;
   }
   .signal-card:hover { transform: translateY(-2px); border-color: var(--border2); }
-  .signal-card.long  { border-top: 2px solid var(--green); }
-  .signal-card.short { border-top: 2px solid var(--red); }
+  .signal-card.long    { border-top: 2px solid var(--green); }
+  .signal-card.short   { border-top: 2px solid var(--red); }
   .signal-card.neutral { border-top: 2px solid var(--text3); }
 
   @keyframes slideIn {
@@ -365,170 +271,76 @@
     to   { opacity: 1; transform: translateY(0); }
   }
 
-  .card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 10px;
-  }
-  .card-symbol {
-    font-family: 'Space Mono', monospace;
-    font-size: 1.05em;
-    font-weight: 700;
-    color: #fff;
-  }
-  .card-price {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.75em;
-    color: var(--text2);
-    margin-top: 2px;
-  }
-  .card-right {
-    text-align: right;
-  }
+  .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
+  .card-symbol { font-family: 'Space Mono', monospace; font-size: 1.05em; font-weight: 700; color: #fff; }
+  .card-price  { font-family: 'Space Mono', monospace; font-size: 0.75em; color: var(--text2); margin-top: 2px; transition: color 0.3s; }
+  .card-right  { text-align: right; }
   .card-direction {
-    font-size: 0.8em;
-    font-weight: 700;
-    padding: 3px 10px;
-    border-radius: 4px;
-    letter-spacing: 1px;
+    font-size: 0.8em; font-weight: 700;
+    padding: 3px 10px; border-radius: 4px; letter-spacing: 1px;
   }
-  .dir-long  { background: rgba(0,229,160,0.12); color: var(--green); border: 1px solid rgba(0,229,160,0.25); }
-  .dir-short { background: rgba(255,64,96,0.12);  color: var(--red);   border: 1px solid rgba(255,64,96,0.25); }
+  .dir-long    { background: rgba(0,229,160,0.12); color: var(--green); border: 1px solid rgba(0,229,160,0.25); }
+  .dir-short   { background: rgba(255,64,96,0.12); color: var(--red);   border: 1px solid rgba(255,64,96,0.25); }
   .dir-neutral { background: rgba(96,112,128,0.12); color: var(--text2); border: 1px solid rgba(96,112,128,0.25); }
-  .card-grade {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.65em;
-    color: var(--text3);
-    margin-top: 4px;
-  }
+  .card-grade  { font-family: 'Space Mono', monospace; font-size: 0.65em; color: var(--text3); margin-top: 4px; }
 
   /* SCORE BAR */
   .score-bar-wrap { margin: 8px 0; }
   .score-bar-label {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.68em;
-    color: var(--text3);
-    margin-bottom: 4px;
+    display: flex; justify-content: space-between;
+    font-size: 0.68em; color: var(--text3); margin-bottom: 4px;
     font-family: 'Space Mono', monospace;
   }
-  .score-bar-bg {
-    height: 4px;
-    background: var(--border);
-    border-radius: 2px;
-    overflow: hidden;
-  }
-  .score-bar-fill {
-    height: 100%;
-    border-radius: 2px;
-    transition: width 0.6s ease;
-  }
+  .score-bar-bg   { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .score-bar-fill { height: 100%; border-radius: 2px; transition: width 0.6s ease; }
 
   /* INDICATOR GRID */
-  .ind-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
-    gap: 6px;
-    margin-top: 8px;
-  }
-  .ind-item {
-    background: var(--bg2);
-    border-radius: 5px;
-    padding: 6px 8px;
-    border: 1px solid var(--border);
-  }
-  .ind-label {
-    font-size: 0.62em;
-    color: var(--text3);
-    letter-spacing: 1px;
-    text-transform: uppercase;
-  }
-  .ind-val {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.82em;
-    color: var(--text);
-    margin-top: 1px;
-  }
+  .ind-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-top: 8px; }
+  .ind-item { background: var(--bg2); border-radius: 5px; padding: 6px 8px; border: 1px solid var(--border); }
+  .ind-label { font-size: 0.62em; color: var(--text3); letter-spacing: 1px; text-transform: uppercase; }
+  .ind-val   { font-family: 'Space Mono', monospace; font-size: 0.82em; color: var(--text); margin-top: 1px; }
 
   /* TF BREAKDOWN */
-  .tf-breakdown {
-    margin-top: 10px;
-    display: flex;
-    gap: 4px;
-  }
+  .tf-breakdown { margin-top: 10px; display: flex; gap: 4px; }
   .tf-chip {
-    flex: 1;
-    text-align: center;
-    padding: 4px 2px;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    background: var(--bg2);
+    flex: 1; text-align: center; padding: 4px 2px;
+    border-radius: 4px; border: 1px solid var(--border); background: var(--bg2);
   }
-  .tf-chip-label {
-    font-size: 0.58em;
-    color: var(--text3);
-    font-family: 'Space Mono', monospace;
-    letter-spacing: 1px;
-  }
-  .tf-chip-dir {
-    font-size: 0.65em;
-    font-weight: 700;
-    margin-top: 2px;
-  }
-  .tf-chip-score {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.6em;
-    color: var(--text3);
-  }
+  .tf-chip-label { font-size: 0.58em; color: var(--text3); font-family: 'Space Mono', monospace; letter-spacing: 1px; }
+  .tf-chip-dir   { font-size: 0.65em; font-weight: 700; margin-top: 2px; }
+  .tf-chip-score { font-family: 'Space Mono', monospace; font-size: 0.6em; color: var(--text3); }
 
   /* FUTURES ROW */
   .futures-row {
-    display: flex;
-    gap: 6px;
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--border);
+    display: flex; gap: 6px; margin-top: 8px;
+    padding-top: 8px; border-top: 1px solid var(--border);
   }
-  .fut-chip {
-    flex: 1;
-    text-align: center;
-    font-size: 0.68em;
-  }
-  .fut-label { color: var(--text3); }
-  .fut-val {
+  .fut-chip   { flex: 1; text-align: center; font-size: 0.68em; }
+  .fut-label  { color: var(--text3); }
+  .fut-val    { font-family: 'Space Mono', monospace; color: var(--text); font-weight: 600; margin-top: 2px; }
+
+  /* REASONS PILL ROW */
+  .reasons-row { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+  .reason-pill {
+    font-size: 0.6em; padding: 2px 7px;
+    border-radius: 10px; letter-spacing: 0.5px;
+    background: rgba(61,158,255,0.08);
+    border: 1px solid rgba(61,158,255,0.2);
+    color: var(--blue);
     font-family: 'Space Mono', monospace;
-    color: var(--text);
-    font-weight: 600;
   }
 
   /* HISTORY TABLE */
-  .history-section {
-    padding: 18px 20px;
-    border-top: 1px solid var(--border);
-    flex-shrink: 0;
-  }
-  .history-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.8em;
-  }
+  .history-table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
   .history-table th {
-    font-family: 'Space Mono', monospace;
-    font-size: 0.65em;
-    letter-spacing: 2px;
-    color: var(--text3);
-    text-align: left;
-    padding: 6px 8px;
-    border-bottom: 1px solid var(--border);
+    font-family: 'Space Mono', monospace; font-size: 0.65em;
+    letter-spacing: 2px; color: var(--text3); text-align: left;
+    padding: 6px 8px; border-bottom: 1px solid var(--border);
     text-transform: uppercase;
   }
   .history-table td {
-    padding: 7px 8px;
-    border-bottom: 1px solid var(--border);
-    color: var(--text2);
-    font-family: 'Space Mono', monospace;
-    font-size: 0.85em;
+    padding: 7px 8px; border-bottom: 1px solid var(--border);
+    color: var(--text2); font-family: 'Space Mono', monospace; font-size: 0.85em;
   }
   .history-table tr:hover td { background: var(--bg3); }
 
@@ -539,31 +351,25 @@
 
   /* TOAST */
   .toast {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    background: var(--bg3);
-    border: 1px solid var(--border2);
-    border-radius: 8px;
-    padding: 12px 18px;
-    font-family: 'Space Mono', monospace;
-    font-size: 0.8em;
-    color: var(--text);
-    z-index: 9999;
+    position: fixed; bottom: 24px; right: 24px;
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: 8px; padding: 12px 18px;
+    font-family: 'Space Mono', monospace; font-size: 0.8em; color: var(--text);
+    z-index: 9999; display: none;
     animation: slideIn 0.3s ease;
-    display: none;
   }
 
   /* EMPTY STATE */
   .empty-state {
-    grid-column: 1 / -1;
-    text-align: center;
-    padding: 60px;
-    color: var(--text3);
-    font-family: 'Space Mono', monospace;
-    font-size: 0.8em;
+    grid-column: 1 / -1; text-align: center; padding: 60px;
+    color: var(--text3); font-family: 'Space Mono', monospace; font-size: 0.8em;
   }
-  .empty-state div { font-size: 2em; margin-bottom: 12px; }
+  .empty-state div { font-size: 2em; margin-bottom: 12px; animation: pulse 2s infinite; }
+
+  /* GRADE BADGE */
+  .grade-a  { color: var(--green) !important; }
+  .grade-b  { color: var(--yellow) !important; }
+  .grade-c  { color: var(--text3) !important; }
 </style>
 </head>
 <body>
@@ -593,7 +399,7 @@
       <div class="panel-title">Account Overview</div>
       <div class="equity-big" id="equity">$0.00</div>
       <div class="equity-sub">
-        <span id="upnl-display" style="font-family: 'Space Mono', monospace; font-size:0.85em;">uPnL: $0.00</span>
+        <span id="upnl-display" style="font-family:'Space Mono',monospace; font-size:0.85em;">uPnL: $0.00</span>
         &nbsp;|&nbsp;
         <span id="return-display">+0.00%</span>
       </div>
@@ -652,9 +458,7 @@
     <div class="panel">
       <div class="panel-title">Recent Closed</div>
       <table class="history-table">
-        <thead>
-          <tr><th>Symbol</th><th>Dir</th><th>Reason</th><th>PnL</th></tr>
-        </thead>
+        <thead><tr><th>Symbol</th><th>Dir</th><th>Reason</th><th>PnL</th></tr></thead>
         <tbody id="history-body"></tbody>
       </table>
     </div>
@@ -668,12 +472,12 @@
       <div class="feed-title">MARKET SIGNALS</div>
       <div style="display:flex; align-items:center; gap:16px;">
         <div class="tf-tabs" id="tf-tabs">
-          <button class="tf-tab active" onclick="setTF('AGG')">AGG</button>
-          <button class="tf-tab" onclick="setTF('1m')">1M</button>
-          <button class="tf-tab" onclick="setTF('5m')">5M</button>
-          <button class="tf-tab" onclick="setTF('15m')">15M</button>
-          <button class="tf-tab" onclick="setTF('30m')">30M</button>
-          <button class="tf-tab" onclick="setTF('1h')">1H</button>
+          <button class="tf-tab active" onclick="setTF('AGG',this)">AGG</button>
+          <button class="tf-tab" onclick="setTF('1m',this)">1M</button>
+          <button class="tf-tab" onclick="setTF('5m',this)">5M</button>
+          <button class="tf-tab" onclick="setTF('15m',this)">15M</button>
+          <button class="tf-tab" onclick="setTF('30m',this)">30M</button>
+          <button class="tf-tab" onclick="setTF('1h',this)">1H</button>
         </div>
         <div style="font-family:'Space Mono',monospace; font-size:0.65em; color:var(--text3);">
           <span id="signal-count">0</span> ASSETS
@@ -681,11 +485,19 @@
       </div>
     </div>
 
+    <!-- FILTER BAR -->
+    <div class="filter-bar">
+      <span style="color:var(--text3)">FILTER:</span>
+      <button class="filter-btn active" onclick="setFilter('ALL',this)">ALL</button>
+      <button class="filter-btn f-long"  onclick="setFilter('LONG',this)">▲ LONG</button>
+      <button class="filter-btn f-short" onclick="setFilter('SHORT',this)">▼ SHORT</button>
+      <span class="filter-sep">|</span>
+      <button class="filter-btn" onclick="setFilter('A+',this)">GRADE A+</button>
+      <button class="filter-btn" onclick="setFilter('B',this)">GRADE B</button>
+    </div>
+
     <div class="feed-container" id="feed-container">
-      <div class="empty-state">
-        <div>⟳</div>
-        SCANNING MARKETS...
-      </div>
+      <div class="empty-state"><div>⟳</div>SCANNING MARKETS...</div>
     </div>
 
   </div><!-- /main -->
@@ -696,13 +508,14 @@
 // ============================================================
 // STATE
 // ============================================================
-let activeTF    = 'AGG';
-let marketData  = [];
-let accountData = {};
-let pieChart    = null;
-let rtPrices    = {};   // real-time prices from /api/prices
-let wsConnected = false;
-let lastPriceTs = 0;
+let activeTF      = 'AGG';
+let activeFilter  = 'ALL';
+let marketData    = [];
+let accountData   = {};
+let pieChart      = null;
+let rtPrices      = {};
+let wsConnected   = false;
+let lastPriceTs   = 0;
 
 const PIE_COLORS = [
   '#00e5a0','#3d9eff','#f5c518','#ff4060','#9d6fff',
@@ -710,12 +523,19 @@ const PIE_COLORS = [
 ];
 
 // ============================================================
-// TF SELECTOR
+// TF & FILTER SELECTORS
 // ============================================================
-function setTF(tf) {
+function setTF(tf, el) {
   activeTF = tf;
   document.querySelectorAll('.tf-tab').forEach(t => t.classList.remove('active'));
-  event.target.classList.add('active');
+  el.classList.add('active');
+  renderFeed();
+}
+
+function setFilter(f, el) {
+  activeFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
   renderFeed();
 }
 
@@ -727,7 +547,6 @@ async function fetchMarket() {
     const r = await fetch('/api/market');
     const d = await r.json();
     if (d.data && d.data.length > 0) {
-      // Inject latest real-time prices into market data
       marketData = d.data.map(item => {
         const rt = rtPrices[item.symbol];
         if (rt) item.price = rt;
@@ -740,46 +559,16 @@ async function fetchMarket() {
 }
 
 async function fetchPrices() {
-  /** Lightweight poll — just prices, updates cards in real-time without full re-render */
   try {
     const r = await fetch('/api/prices');
     const d = await r.json();
     if (d.prices && Object.keys(d.prices).length > 0) {
-      rtPrices = d.prices;
+      rtPrices    = d.prices;
       lastPriceTs = Date.now();
       setWsStatus(true);
-      // Update price labels on cards without full re-render
       updateCardPrices();
     }
   } catch(e) {}
-}
-
-function setWsStatus(connected) {
-  wsConnected = connected;
-  const dot    = document.getElementById('ws-dot');
-  const status = document.getElementById('ws-status');
-  if (connected) {
-    dot.style.background    = 'var(--green)';
-    dot.style.boxShadow     = '0 0 8px var(--green)';
-    status.textContent      = 'LIVE';
-    status.style.color      = 'var(--green)';
-  } else {
-    dot.style.background    = 'var(--yellow)';
-    dot.style.boxShadow     = '0 0 8px var(--yellow)';
-    status.textContent      = 'BUFFERING';
-    status.style.color      = 'var(--yellow)';
-  }
-}
-
-function updateCardPrices() {
-  /** Update price text on existing cards without full DOM rebuild */
-  document.querySelectorAll('[data-symbol]').forEach(el => {
-    const sym = el.getAttribute('data-symbol');
-    const price = rtPrices[sym + '/USDT'] || rtPrices[sym];
-    if (price) {
-      el.textContent = `$${parseFloat(price).toFixed(4)}`;
-    }
-  });
 }
 
 async function fetchAccount() {
@@ -791,50 +580,68 @@ async function fetchAccount() {
   } catch(e) {}
 }
 
+function setWsStatus(connected) {
+  wsConnected = connected;
+  const dot    = document.getElementById('ws-dot');
+  const status = document.getElementById('ws-status');
+  if (connected) {
+    dot.style.background = 'var(--green)';
+    dot.style.boxShadow  = '0 0 8px var(--green)';
+    status.textContent   = 'LIVE';
+    status.style.color   = 'var(--green)';
+  } else {
+    dot.style.background = 'var(--yellow)';
+    dot.style.boxShadow  = '0 0 8px var(--yellow)';
+    status.textContent   = 'BUFFERING';
+    status.style.color   = 'var(--yellow)';
+  }
+}
+
+function updateCardPrices() {
+  document.querySelectorAll('[data-symbol]').forEach(el => {
+    const sym   = el.getAttribute('data-symbol');
+    const price = rtPrices[sym + '/USDT'] || rtPrices[sym];
+    if (price) el.textContent = `$${parseFloat(price).toFixed(4)}`;
+  });
+}
+
 // ============================================================
 // RENDER ACCOUNT
 // ============================================================
 function renderAccount() {
-  const s = accountData.stats || {};
+  const s         = accountData.stats    || {};
   const positions = accountData.positions || [];
-  const history = accountData.history || [];
+  const history   = accountData.history  || [];
 
-  // Stats
-  const equity = s.equity || 0;
-  const upnl = s.unrealized_pnl || 0;
-  const ret = s.total_return_pct || 0;
-  const tpnl = s.total_pnl || 0;
+  const equity = s.equity            || 0;
+  const upnl   = s.unrealized_pnl    || 0;
+  const ret    = s.total_return_pct  || 0;
+  const tpnl   = s.total_pnl         || 0;
 
-  document.getElementById('equity').textContent = `$${equity.toFixed(2)}`;
-  document.getElementById('equity').className = 'equity-big ' + (equity >= 200 ? 'green' : 'red');
+  const equityEl = document.getElementById('equity');
+  equityEl.textContent = `$${equity.toFixed(2)}`;
+  equityEl.className   = 'equity-big ' + (equity >= 200 ? '' : 'red');
 
   const upnlEl = document.getElementById('upnl-display');
-  upnlEl.textContent = `uPnL: ${upnl >= 0 ? '+' : ''}$${upnl.toFixed(4)}`;
-  upnlEl.style.color = upnl >= 0 ? 'var(--green)' : 'var(--red)';
+  upnlEl.textContent  = `uPnL: ${upnl >= 0 ? '+' : ''}$${upnl.toFixed(4)}`;
+  upnlEl.style.color  = upnl >= 0 ? 'var(--green)' : 'var(--red)';
 
   const retEl = document.getElementById('return-display');
-  retEl.textContent = `${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%`;
-  retEl.style.color = ret >= 0 ? 'var(--green)' : 'var(--red)';
+  retEl.textContent  = `${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%`;
+  retEl.style.color  = ret >= 0 ? 'var(--green)' : 'var(--red)';
 
-  document.getElementById('balance').textContent = `$${(s.balance || 0).toFixed(2)}`;
-
+  document.getElementById('balance').textContent    = `$${(s.balance || 0).toFixed(2)}`;
   const tpnlEl = document.getElementById('total-pnl');
   tpnlEl.textContent = `${tpnl >= 0 ? '+' : ''}$${tpnl.toFixed(4)}`;
-  tpnlEl.className = 'stat-value ' + (tpnl >= 0 ? 'green' : 'red');
-
-  document.getElementById('win-rate').textContent = `${s.win_rate || 0}%`;
+  tpnlEl.className   = 'stat-value ' + (tpnl >= 0 ? 'green' : 'red');
+  document.getElementById('win-rate').textContent   = `${s.win_rate || 0}%`;
   document.getElementById('total-trades').textContent = s.total_trades || 0;
   document.getElementById('used-margin').textContent = `$${(s.used_margin || 0).toFixed(2)}`;
-  document.getElementById('open-pos').textContent = s.open_positions || 0;
+  document.getElementById('open-pos').textContent   = s.open_positions || 0;
   document.getElementById('signal-count').textContent = marketData.length;
 
-  // PIE CHART
   renderPie(positions, s);
-
-  // POSITIONS
   renderPositions(positions);
-
-  // HISTORY
   renderHistory(history);
 }
 
@@ -842,27 +649,25 @@ function renderAccount() {
 // PIE CHART
 // ============================================================
 function renderPie(positions, stats) {
-  const legend = document.getElementById('pie-legend');
+  const legend    = document.getElementById('pie-legend');
   const centerVal = document.getElementById('pie-center-val');
-  const ctx = document.getElementById('pie-chart').getContext('2d');
+  const ctx       = document.getElementById('pie-chart').getContext('2d');
+  const equity    = stats.equity || 200;
 
   let labels = [], values = [], colors = [];
-  const equity = stats.equity || 200;
 
-  if (positions.length === 0) {
-    labels = ['Free Margin'];
-    values = [100];
-    colors = ['#1e2d3d'];
+  if (!positions.length) {
+    labels = ['Free Margin']; values = [100]; colors = ['#1e2d3d'];
     centerVal.textContent = '—';
   } else {
     positions.forEach((p, i) => {
-      labels.push(p.symbol.replace('/USDT',''));
+      labels.push(p.symbol.replace('/USDT', ''));
       values.push(parseFloat(((p.margin / equity) * 100).toFixed(1)));
       colors.push(PIE_COLORS[i % PIE_COLORS.length]);
     });
-    const usedPct = values.reduce((a,b) => a+b, 0);
-    const freePct = Math.max(0, 100 - usedPct);
-    if (freePct > 0) { labels.push('Free'); values.push(parseFloat(freePct.toFixed(1))); colors.push('#1e2d3d'); }
+    const used = values.reduce((a, b) => a + b, 0);
+    const free = Math.max(0, 100 - used);
+    if (free > 0) { labels.push('Free'); values.push(parseFloat(free.toFixed(1))); colors.push('#1e2d3d'); }
     centerVal.textContent = positions.length;
   }
 
@@ -872,9 +677,7 @@ function renderPie(positions, stats) {
     data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0, hoverOffset: 4 }] },
     options: {
       cutout: '72%',
-      plugins: { legend: { display: false }, tooltip: {
-        callbacks: { label: ctx => ` ${ctx.label}: ${ctx.raw}%` }
-      }},
+      plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ` ${c.label}: ${c.raw}%` } } },
       animation: { duration: 600 }
     }
   });
@@ -883,7 +686,7 @@ function renderPie(positions, stats) {
     <div class="legend-item">
       <div class="legend-dot" style="background:${PIE_COLORS[i]}"></div>
       <span class="legend-name">${p.symbol.replace('/USDT','')} ${p.direction}</span>
-      <span class="legend-pct ${p.unrealized_pnl >= 0 ? 'green' : 'red'}" style="color:${p.unrealized_pnl >= 0 ? 'var(--green)' : 'var(--red)'}">
+      <span class="legend-pct" style="color:${p.unrealized_pnl >= 0 ? 'var(--green)' : 'var(--red)'}">
         ${p.unrealized_pnl >= 0 ? '+' : ''}$${p.unrealized_pnl.toFixed(3)}
       </span>
     </div>`).join('');
@@ -894,16 +697,16 @@ function renderPie(positions, stats) {
 // ============================================================
 function renderPositions(positions) {
   const el = document.getElementById('positions-list');
-  if (positions.length === 0) {
+  if (!positions.length) {
     el.innerHTML = `<div style="color:var(--text3); font-size:0.8em; text-align:center; padding:20px; font-family:'Space Mono',monospace;">NO OPEN POSITIONS</div>`;
     return;
   }
   el.innerHTML = positions.map(p => {
-    const pnlClass = p.unrealized_pnl >= 0 ? 'pos' : 'neg';
-    const dirClass = p.direction === 'LONG' ? 'long' : 'short';
+    const pnlClass  = p.unrealized_pnl >= 0 ? 'pos' : 'neg';
+    const dirClass  = p.direction === 'LONG' ? 'long' : 'short';
     const badgeClass = p.direction === 'LONG' ? 'badge-long' : 'badge-short';
-    const tp1Hit = p.tp1_hit ? 'hit' : '';
-    const tp2Hit = p.tp2_hit ? 'hit' : '';
+    const tp1Hit    = p.tp1_hit ? 'hit' : '';
+    const tp2Hit    = p.tp2_hit ? 'hit' : '';
     return `
     <div class="position-card ${dirClass}">
       <div class="pos-header">
@@ -917,8 +720,8 @@ function renderPositions(positions) {
         <div><div class="pos-field-label">Entry</div><div class="pos-field-val">$${parseFloat(p.entry_price).toFixed(4)}</div></div>
         <div><div class="pos-field-label">Now</div><div class="pos-field-val">$${parseFloat(p.current_price).toFixed(4)}</div></div>
         <div><div class="pos-field-label">Margin</div><div class="pos-field-val">$${parseFloat(p.margin).toFixed(2)}</div></div>
-        <div><div class="pos-field-label">TP1</div><div class="pos-field-val">$${parseFloat(p.tp1).toFixed(4)}</div></div>
-        <div><div class="pos-field-label">TP2</div><div class="pos-field-val">$${parseFloat(p.tp2).toFixed(4)}</div></div>
+        <div><div class="pos-field-label">TP1</div><div class="pos-field-val" style="color:var(--green)">$${parseFloat(p.tp1).toFixed(4)}</div></div>
+        <div><div class="pos-field-label">TP2</div><div class="pos-field-val" style="color:var(--green)">$${parseFloat(p.tp2).toFixed(4)}</div></div>
         <div><div class="pos-field-label">SL</div><div class="pos-field-val" style="color:var(--red)">$${parseFloat(p.sl).toFixed(4)}</div></div>
       </div>
       <div class="tp-bar">
@@ -955,13 +758,16 @@ async function closePos(posId) {
 // ============================================================
 function renderHistory(history) {
   const tbody = document.getElementById('history-body');
-  if (!history.length) { tbody.innerHTML = `<tr><td colspan="4" style="color:var(--text3); text-align:center;">No history</td></tr>`; return; }
+  if (!history.length) {
+    tbody.innerHTML = `<tr><td colspan="4" style="color:var(--text3); text-align:center;">No history</td></tr>`;
+    return;
+  }
   tbody.innerHTML = [...history].reverse().slice(0, 8).map(h => {
-    const pnl = h.realized_pnl || 0;
+    const pnl      = h.realized_pnl || 0;
     const pnlColor = pnl >= 0 ? 'var(--green)' : 'var(--red)';
     return `<tr>
       <td style="color:var(--text)">${h.symbol.replace('/USDT','')}</td>
-      <td style="color:${h.direction==='LONG' ? 'var(--green)' : 'var(--red)'}">${h.direction}</td>
+      <td style="color:${h.direction==='LONG'?'var(--green)':'var(--red)'}">${h.direction}</td>
       <td style="color:var(--text2)">${h.close_reason}</td>
       <td style="color:${pnlColor}">${pnl >= 0 ? '+' : ''}$${pnl.toFixed(3)}</td>
     </tr>`;
@@ -978,12 +784,18 @@ function renderFeed() {
   container.innerHTML = '';
   let rendered = 0;
 
-  // Sort: A+ first, then by score
-  const sorted = [...marketData].sort((a, b) => {
+  // Sort: A+ first, then by distance from 50
+  let sorted = [...marketData].sort((a, b) => {
     if (a.grade === 'A+' && b.grade !== 'A+') return -1;
     if (b.grade === 'A+' && a.grade !== 'A+') return  1;
     return Math.abs(b.agg_score - 50) - Math.abs(a.agg_score - 50);
   });
+
+  // Apply filter
+  if (activeFilter === 'LONG')  sorted = sorted.filter(x => x.agg_direction === 'LONG');
+  if (activeFilter === 'SHORT') sorted = sorted.filter(x => x.agg_direction === 'SHORT');
+  if (activeFilter === 'A+')    sorted = sorted.filter(x => x.grade === 'A+');
+  if (activeFilter === 'B')     sorted = sorted.filter(x => x.grade === 'B');
 
   for (const item of sorted) {
     let score, direction, reasons = [], rsi, volSpike, mpi, vwap, cvd, stochK, tp1, tp2, tp3, sl;
@@ -1004,16 +816,16 @@ function renderFeed() {
     const dirClass = direction === 'LONG' ? 'long' : direction === 'SHORT' ? 'short' : 'neutral';
     const dirLabel = direction === 'LONG' ? '▲ LONG' : direction === 'SHORT' ? '▼ SHORT' : '— NEUTRAL';
     const dirBadge = direction === 'LONG' ? 'dir-long' : direction === 'SHORT' ? 'dir-short' : 'dir-neutral';
+    const gradeClass = item.grade === 'A+' ? 'grade-a' : item.grade === 'B' ? 'grade-b' : 'grade-c';
 
     const barColor = score >= 65 ? '#00e5a0' : score <= 35 ? '#ff4060' : '#607080';
-    const barWidth = score + '%';
+    const tfs      = ['1m','5m','15m','30m','1h'];
 
-    const tfs = ['1m','5m','15m','30m','1h'];
     const tfChips = tfs.map(tf => {
       const d = item.timeframes?.[tf];
       if (!d) return `<div class="tf-chip"><div class="tf-chip-label">${tf}</div><div class="tf-chip-dir" style="color:var(--text3)">—</div></div>`;
-      const c = d.direction === 'LONG' ? 'var(--green)' : d.direction === 'SHORT' ? 'var(--red)' : 'var(--text3)';
-      const arrow = d.direction === 'LONG' ? '▲' : d.direction === 'SHORT' ? '▼' : '—';
+      const c     = d.direction==='LONG' ? 'var(--green)' : d.direction==='SHORT' ? 'var(--red)' : 'var(--text3)';
+      const arrow = d.direction==='LONG' ? '▲' : d.direction==='SHORT' ? '▼' : '—';
       return `<div class="tf-chip">
         <div class="tf-chip-label">${tf.toUpperCase()}</div>
         <div class="tf-chip-dir" style="color:${c}">${arrow}</div>
@@ -1023,24 +835,29 @@ function renderFeed() {
 
     const fundingColor = item.funding_rate > 0 ? 'var(--red)' : item.funding_rate < 0 ? 'var(--green)' : 'var(--text2)';
 
+    // Reasons pills (max 3)
+    const reasonPills = (reasons || []).slice(0, 4).map(r =>
+      `<span class="reason-pill">${r}</span>`
+    ).join('');
+
     const card = document.createElement('div');
     card.className = `signal-card ${dirClass}`;
     card.innerHTML = `
       <div class="card-header">
         <div>
           <div class="card-symbol">${item.symbol.replace('/USDT','')}<span style="color:var(--text3);font-size:0.6em;">/USDT</span></div>
-          <div class="card-price" data-symbol="${item.symbol.replace('/USDT','')}" >$${parseFloat(item.price).toFixed(4)}</div>
+          <div class="card-price" data-symbol="${item.symbol.replace('/USDT','')}">$${parseFloat(item.price).toFixed(4)}</div>
         </div>
         <div class="card-right">
           <div class="card-direction ${dirBadge}">${dirLabel}</div>
-          <div class="card-grade">GRADE ${item.grade} · ${score.toFixed(0)}/100</div>
+          <div class="card-grade"><span class="${gradeClass}">GRADE ${item.grade}</span> · ${score.toFixed(0)}/100</div>
         </div>
       </div>
 
       <div class="score-bar-wrap">
         <div class="score-bar-label"><span>BEAR</span><span>SCORE</span><span>BULL</span></div>
         <div class="score-bar-bg">
-          <div class="score-bar-fill" style="width:${barWidth}; background:${barColor};"></div>
+          <div class="score-bar-fill" style="width:${score}%; background:${barColor};"></div>
         </div>
       </div>
 
@@ -1081,6 +898,8 @@ function renderFeed() {
         <div class="ind-item"><div class="ind-label">SL</div><div class="ind-val" style="color:var(--red)">$${parseFloat(sl).toFixed(4)}</div></div>
       </div>` : ''}
 
+      ${reasonPills ? `<div class="reasons-row">${reasonPills}</div>` : ''}
+
       <div class="tf-breakdown">${tfChips}</div>
 
       <div class="futures-row">
@@ -1111,7 +930,7 @@ function renderFeed() {
   }
 
   if (!rendered) {
-    container.innerHTML = `<div class="empty-state"><div>⟳</div>SCANNING MARKETS...</div>`;
+    container.innerHTML = `<div class="empty-state"><div>⟳</div>NO SIGNALS FOR ACTIVE FILTER</div>`;
   }
 }
 
@@ -1120,7 +939,7 @@ function renderFeed() {
 // ============================================================
 function showToast(msg) {
   const t = document.getElementById('toast');
-  t.textContent = msg;
+  t.textContent   = msg;
   t.style.display = 'block';
   setTimeout(() => { t.style.display = 'none'; }, 3000);
 }
@@ -1142,19 +961,14 @@ async function tick() {
   prevPositionCount = pos;
 }
 
-// Check WS staleness
 function checkWsHealth() {
-  if (lastPriceTs > 0 && Date.now() - lastPriceTs > 10000) {
-    setWsStatus(false);
-  }
+  if (lastPriceTs > 0 && Date.now() - lastPriceTs > 10000) setWsStatus(false);
 }
 
-// Boot
 tick();
-setInterval(tick, 10000);        // full re-render every 10s
-setInterval(fetchPrices, 1000);  // RT price refresh every 1s
+setInterval(tick, 10000);
+setInterval(fetchPrices, 1000);
 setInterval(checkWsHealth, 5000);
-
 </script>
 </body>
 </html>
