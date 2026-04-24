@@ -22,7 +22,8 @@ load_dotenv("DATA.env")
 LEVERAGE           = 20
 MARGIN_PER_TRADE   = 0.10
 MAX_OPEN_POSITIONS = 5
-INITIAL_BALANCE    = 200.0
+SAFE_MARGIN_RATIO  = 0.25
+INITIAL_BALANCE    = 1000.0
 ACCOUNT_FILE       = "virtual_account.json"
 
 TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h']
@@ -38,15 +39,25 @@ SCAN_WORKERS = 5
 # Min volume (USDT) to include a symbol - filter low liquidity coins
 MIN_VOLUME_USDT = 5_000_000  # 5M USDT 24h volume
 
-TOKEN        = os.getenv("TOKEN_HIGH")
+TOKEN        = os.getenv("TOKEN_MACRO")
 CHAT_ID      = os.getenv("CHAT_ID")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "181268")
 
 # ============================================================
 # 🔗 EXCHANGE & FLASK
 # ============================================================
-exchange = ccxt.binance({'enableRateLimit': True, 'options': {'defaultType': 'future'}})
+exchange_indodax = ccxt.indodax({'enableRateLimit': True})
 app      = Flask(__name__)
+
+import logging
+
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+
+if 'WERKZEUG_RUN_MAIN' in os.environ:
+    del os.environ['WERKZEUG_RUN_MAIN']
+
+DATA_SOURCE = 'indodax'
 
 try:
     import telebot
@@ -137,6 +148,24 @@ def calc_vwap(df):
 # ============================================================
 # 🌐 DYNAMIC WATCHLIST from Binance
 # ============================================================
+def load_watchlist_indodax():
+    global WATCHLIST
+
+    print("📋 Loading Indodax symbols...")
+    try:
+        markets = exchange_indodax.load_markets()
+        # Mengambil pair IDR dan USDT
+        symbols = [s for s in markets if s.endswith('/IDR') or s.endswith('/USDT')]
+        with watchlist_lock:
+            WATCHLIST.clear()
+            WATCHLIST.extend(symbols)
+        print(f"✅ Indodax Watchlist loaded: {len(WATCHLIST)} symbols")
+        return True
+    except Exception as e:
+        print(f"❌ Indodax Watchlist failed: {e}")
+        return False
+
+    
 def load_watchlist():
     """Fetch all active USDT perpetual futures from Binance with sufficient volume."""
     global WATCHLIST
@@ -172,37 +201,41 @@ def load_watchlist():
     except Exception as e:
         print(f"❌ Watchlist load failed: {e}")
         # Fallback to basic list
-        fallback = [
-            'BTC/USDT','ETH/USDT','BNB/USDT','SOL/USDT','XRP/USDT',
-            'DOGE/USDT','ADA/USDT','AVAX/USDT','LINK/USDT','DOT/USDT',
-            'MATIC/USDT','UNI/USDT','ATOM/USDT','LTC/USDT','BCH/USDT'
-        ]
+        fallback = ['BTC/USDT','ETH/USDT','SOL/USDT','XRP/USDT','DOGE/USDT']
         with watchlist_lock:
             WATCHLIST.clear()
             WATCHLIST.extend(fallback)
-        print(f"⚠️  Using fallback watchlist: {len(WATCHLIST)} symbols")
+        print(f"⚠️ Using fallback watchlist: {len(WATCHLIST)} symbols")
         return False
+    
 
 def watchlist_refresh_loop():
     """Refresh watchlist every 6 hours."""
     while True:
         time.sleep(6 * 3600)
-        load_watchlist()
+        if DATA_SOURCE == 'indodax':
+            load_watchlist_indodax()
+        else:
+            load_watchlist()
 
 # ============================================================
 # 🌐 OHLCV REST - non-blocking batch fetch
 # ============================================================
 def fetch_ohlcv_symbol(sym):
-    """Fetch all timeframes for one symbol. Returns True on success."""
+    """Fetch data dari Indodax jika DATA_SOURCE adalah indodax"""
     sd = {}
+    # Gunakan exchange_indodax jika DATA_SOURCE disetel ke indodax
+    active_exchange = exchange_indodax if DATA_SOURCE == 'indodax' else exchange
+    
     for tf in TIMEFRAMES:
         try:
-            raw = exchange.fetch_ohlcv(sym, tf, limit=TF_LIMIT[tf])
+            # Indodax mungkin butuh limit yang lebih kecil atau penyesuaian format
+            raw = active_exchange.fetch_ohlcv(sym, tf, limit=TF_LIMIT[tf])
             if raw and len(raw) >= 30:
                 sd[tf] = pd.DataFrame(raw, columns=['ts','open','high','low','close','vol'])
             time.sleep(0.05)
-        except Exception as e:
-            pass  # silently skip, retry next cycle
+        except Exception:
+            pass 
     if sd:
         with ohlcv_lock:
             ohlcv_cache[sym] = sd
@@ -414,6 +447,23 @@ def get_ls(sym):
 # ============================================================
 # 🧠 ANALYSIS ENGINE
 # ============================================================
+
+def is_intrinsically_strong(analysis):
+    """Filter tambahan: Skor tinggi + Volume mendukung + Trend satu arah"""
+    if not analysis: return False
+    
+    agg_score = analysis.get('agg_score', 50)
+    # Ambil data timeframe 1 jam untuk konfirmasi trend
+    tf_1h = analysis['timeframes'].get('1h', {})
+    
+    # Kriteria: Grade A+, Volume Spike > 1.5x, dan trend 1H searah dengan sinyal agregat
+    is_a_plus = analysis['grade'] == 'A+'
+    vol_spike = tf_1h.get('vol_spike', 0) > 1.5
+    trend_aligned = tf_1h.get('direction') == analysis['agg_direction']
+    
+    return is_a_plus and vol_spike and trend_aligned
+
+
 def analyze(sym):
     with ohlcv_lock:
         sc = ohlcv_cache.get(sym, {})
@@ -567,6 +617,29 @@ def analyze(sym):
 # ============================================================
 # 💰 VIRTUAL ACCOUNT
 # ============================================================
+
+def reset_account():
+    """Mereset akun ke saldo awal $1000 dan menghapus semua posisi"""
+    new_acc = {
+        'balance': INITIAL_BALANCE, 
+        'initial_balance': INITIAL_BALANCE,
+        'positions': {}, 
+        'history': [], 
+        'total_trades': 0,
+        'winning_trades': 0, 
+        'total_pnl': 0.0
+    }
+    save_account(new_acc)
+    return new_acc
+
+def update_margin_config(new_margin_pct):
+    """Mengatur persentase margin per trade (contoh: 0.20 untuk 20%)"""
+    global MARGIN_PER_TRADE
+    if 0.01 <= new_margin_pct <= 0.50: # Batas aman 1% - 50%
+        MARGIN_PER_TRADE = new_margin_pct
+        return True
+    return False
+
 def load_account():
     if os.path.exists(ACCOUNT_FILE):
         try:
@@ -598,9 +671,13 @@ def equity(account, prices):
 def open_pos(account, sym, direction, entry, tp1, tp2, tp3, sl, score, reasons):
     if len(account['positions']) >= MAX_OPEN_POSITIONS:
         return None, "Max positions reached"
-    if any(p['symbol'] == sym for p in account['positions'].values()):
-        return None, f"Already in {sym}"
+    
     margin = account['balance'] * MARGIN_PER_TRADE
+    
+    min_required_balance = account['balance'] * SAFE_MARGIN_RATIO
+    if (account['balance'] - margin) < min_required_balance:
+        return None, f"Insufficient Safe Margin (Must keep 25% free)"
+        
     if margin < 1: return None, "Insufficient balance"
     notional = margin * LEVERAGE
     pid      = str(uuid.uuid4())[:8].upper()
@@ -699,17 +776,18 @@ def scanner_loop():
                     tg_closed(c)
 
                 # Auto-trade on strong signals (A+ or B grade, non-neutral)
-                if res['grade'] in ('A+','B') and res['agg_direction'] != 'NEUTRAL':
-                    sig = f"{sym}_{res['agg_direction']}"
-                    if last_signals.get(sym) != sig:
+                if is_intrinsically_strong(res):
+                    sig_key = f"{sym}_{res['agg_direction']}"
+                    if last_signals.get(sym) != sig_key:
                         tfd = res['timeframes'].get('1h') or res['timeframes'].get('15m')
                         if tfd:
-                            pid, pos = open_pos(account, sym, res['agg_direction'], res['price'],
-                                                tfd['tp1'],tfd['tp2'],tfd['tp3'],tfd['sl'],
-                                                res['agg_score'], tfd['reasons'])
-                            if pid:
-                                last_signals[sym] = sig
-                                tg_opened(pos)
+                            # Eksekusi beli/jual di akun virtual
+                                pid, pos = open_pos(account, sym, res['agg_direction'], res['price'],
+                                                    tfd['tp1'], tfd['tp2'], tfd['tp3'], tfd['sl'],
+                                                    res['agg_score'], tfd['reasons'])
+                                if pid:
+                                    last_signals[sym] = sig_key
+                                    tg_opened(pos)
             except Exception as e:
                 pass  # don't crash scanner on one bad symbol
             time.sleep(0.1)
@@ -844,7 +922,9 @@ def _deny():
 @app.route('/')
 def index():
     if not _auth(): return _deny()
-    with open(HTML_FILE, 'r') as f: return f.read()
+    # Tambahkan parameter encoding='utf-8' saat membuka file
+    with open(HTML_FILE, 'r', encoding='utf-8') as f: 
+        return f.read()
 
 @app.route('/api/status')
 def api_status():
@@ -918,16 +998,30 @@ def api_close(pid):
     if result: return jsonify({"success": True, "pnl": result['realized_pnl']})
     return jsonify({"success": False, "error": msg}), 400
 
+@app.route('/api/account/reset', methods=['POST'])
+def api_reset():
+    if not _auth(): return jsonify({"error":"Unauthorized"}), 401
+    reset_account()
+    return jsonify({"success": True, "message": "Account reset to $1000"})
+
+@app.route('/api/account/margin', methods=['POST'])
+def api_set_margin():
+    if not _auth(): return jsonify({"error":"Unauthorized"}), 401
+    val = request.json.get('margin_pct') # Kirim dalam desimal, misal 0.15
+    if update_margin_config(float(val)):
+        return jsonify({"success": True, "new_margin": MARGIN_PER_TRADE})
+    return jsonify({"success": False, "error": "Invalid margin value"}), 400
+
 # ============================================================
 # 🚀 STARTUP — non-blocking, Flask binds port first
 # ============================================================
 if __name__ == "__main__":
     print("🚀 APEX Trading Bot starting...")
+    if DATA_SOURCE == 'indodax':
+        load_watchlist_indodax()
+    else:
+        load_watchlist()
 
-    # Step 1: Load watchlist FIRST (fast REST call)
-    load_watchlist()
-
-    # Step 2: Start Flask IMMEDIATELY (Railway health check needs port bound)
     port = int(os.environ.get("PORT", 5000))
     print(f"🌐 Flask binding on :{port}")
 
