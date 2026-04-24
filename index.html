@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>APEX TRADING INTELLIGENCE</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<button onclick="confirmReset()" class="btn-reset" style="background: var(--red); color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-family: 'Rajdhani'; font-weight: bold; margin-left: 10px;">
+  RESET $1000
+</button>
+
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Rajdhani:wght@400;600;700&display=swap');
 
@@ -209,7 +213,7 @@
     padding: 14px 24px;
     background: var(--bg2);
     border-bottom: 1px solid var(--border);
-    position: sticky; top: 57px; z-index: 50;
+    position: sticky; top: 0px; z-index: 50;
   }
   .feed-title { font-family: 'Space Mono', monospace; font-size: 0.7em; letter-spacing: 3px; color: var(--text3); }
   .tf-tabs { display: flex; gap: 4px; }
@@ -245,7 +249,8 @@
 
   /* SIGNAL CARDS */
   .feed-container {
-    padding: 16px 24px;
+    padding: 16px 24px; /* Memberi ruang di dalam kontainer */
+    margin-top: 5px;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
     gap: 12px;
@@ -470,7 +475,7 @@
 
     <div class="feed-header">
       <div class="feed-title">MARKET SIGNALS</div>
-      <div style="display:flex; align-items:center; gap:16px;">
+      <div style="display:flex; align-items:center; gap:0px;">
         <div class="tf-tabs" id="tf-tabs">
           <button class="tf-tab active" onclick="setTF('AGG',this)">AGG</button>
           <button class="tf-tab" onclick="setTF('1m',this)">1M</button>
@@ -497,7 +502,7 @@
     </div>
 
     <!-- MARKET SUMMARY BAR -->
-    <div id="market-summary" style="display:none; padding:8px 16px; background:var(--bg3); border-bottom:1px solid var(--border); display:flex; gap:20px; font-family:'Space Mono',monospace; font-size:0.7em; flex-wrap:wrap;">
+    <div id="market-summary" style="display:none; padding:30px 16px; background:var(--bg3); border-bottom:1px solid var(--border); display:flex; gap:20px; font-family:'Space Mono',monospace; font-size:0.7em; flex-wrap:wrap;">
       <span>🔍 SCANNING: <span id="sum-total" style="color:var(--text)">0</span> symbols</span>
       <span>🟢 LONGS: <span id="sum-longs" style="color:var(--green)">0</span></span>
       <span>🔴 SHORTS: <span id="sum-shorts" style="color:var(--red)">0</span></span>
@@ -587,6 +592,28 @@ async function checkStartupStatus() {
   } catch(e) { return false; }
 }
 
+async function confirmReset() {
+  if (confirm("Apakah Anda yakin ingin meriset saldo ke $1000 dan menghapus semua riwayat trading?")) {
+    try {
+      const response = await fetch('/api/account/reset', { 
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        showToast("Account Reset Successfully!");
+        // Refresh data akun setelah reset
+        fetchAccount(); 
+      } else {
+        alert("Gagal reset: " + data.error);
+      }
+    } catch (err) {
+      console.error("Error resetting account:", err);
+    }
+  }
+}
+
 async function fetchMarket() {
   try {
     const r = await fetch('/api/market');
@@ -672,7 +699,7 @@ function renderAccount() {
 
   const equityEl = document.getElementById('equity');
   equityEl.textContent = `$${equity.toFixed(2)}`;
-  equityEl.className   = 'equity-big ' + (equity >= 200 ? '' : 'red');
+  equityEl.className   = 'equity-big ' + (equity >= 1000 ? '' : 'red');
 
   const upnlEl = document.getElementById('upnl-display');
   upnlEl.textContent  = `uPnL: ${upnl >= 0 ? '+' : ''}$${upnl.toFixed(4)}`;
@@ -704,7 +731,7 @@ function renderPie(positions, stats) {
   const legend    = document.getElementById('pie-legend');
   const centerVal = document.getElementById('pie-center-val');
   const ctx       = document.getElementById('pie-chart').getContext('2d');
-  const equity    = stats.equity || 200;
+  const equity    = stats.equity || 1000;
 
   let labels = [], values = [], colors = [];
 
