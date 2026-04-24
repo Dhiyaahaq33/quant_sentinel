@@ -1,6 +1,9 @@
 """
-APEX Trading Bot — Single-file deployment for Railway
-engine + trader + flask + telegram all in one
+APEX Trading Bot — Fixed for Railway deployment
+- Non-blocking startup (Flask binds port immediately)
+- All Binance USDT perpetual futures (not just 15)
+- Top N best opportunities shown on dashboard
+- REST fallback if WebSocket fails
 """
 
 import ccxt
@@ -26,11 +29,14 @@ TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h']
 TF_LIMIT   = {tf: 100 for tf in TIMEFRAMES}
 TF_WEIGHTS = {'1m': 0.05, '5m': 0.10, '15m': 0.20, '30m': 0.25, '1h': 0.40}
 
-WATCHLIST = [
-    'BTC/USDT','ETH/USDT','BNB/USDT','SOL/USDT','XRP/USDT',
-    'DOGE/USDT','ADA/USDT','AVAX/USDT','LINK/USDT','DOT/USDT',
-    'MATIC/USDT','UNI/USDT','ATOM/USDT','LTC/USDT','BCH/USDT'
-]
+# Top N symbols to show on dashboard (sorted by signal strength)
+TOP_N = 30
+
+# How many symbols to scan concurrently
+SCAN_WORKERS = 5
+
+# Min volume (USDT) to include a symbol - filter low liquidity coins
+MIN_VOLUME_USDT = 5_000_000  # 5M USDT 24h volume
 
 TOKEN        = os.getenv("TOKEN_HIGH")
 CHAT_ID      = os.getenv("CHAT_ID")
@@ -49,21 +55,28 @@ except ImportError:
     bot = None
 
 # ============================================================
-# 🗄️  SHARED CACHE
+# 🗄️  SHARED STATE
 # ============================================================
-ohlcv_cache: dict = {}   # [symbol][tf] = pd.DataFrame
+ohlcv_cache: dict = {}      # [symbol][tf] = pd.DataFrame
 ohlcv_lock        = threading.Lock()
 
-ws_prices:    dict = {}  # symbol -> float
-ws_kline:     dict = {}  # symbol -> {tf -> dict}
-ws_orderbook: dict = {}  # symbol -> {bids, asks}
-ws_funding:   dict = {}  # symbol -> float
+ws_prices:    dict = {}
+ws_kline:     dict = {}
+ws_orderbook: dict = {}
+ws_funding:   dict = {}
 ws_lock             = threading.Lock()
 
 market_data:    dict = {}   # symbol -> latest analysis
-current_prices: dict = {}   # symbol -> latest price
-last_signals:   dict = {}   # symbol -> last sig key
+current_prices: dict = {}
+last_signals:   dict = {}
 scan_lock             = threading.Lock()
+
+# Dynamic watchlist - populated from Binance
+WATCHLIST: list = []
+watchlist_lock = threading.Lock()
+
+# Startup status
+startup_status = {"phase": "STARTING", "progress": 0, "total": 0, "ready": False}
 
 # ============================================================
 # 📊 INDICATORS
@@ -74,7 +87,8 @@ def calc_rsi(close, p=14):
     d = close.diff()
     g = d.where(d > 0, 0).rolling(p).mean()
     l = (-d.where(d < 0, 0)).rolling(p).mean()
-    return 100 - (100 / (1 + g / l))
+    rs = g / l.replace(0, np.nan)
+    return 100 - (100 / (1 + rs))
 
 def calc_ema(close, p):
     return close.ewm(span=p, adjust=False).mean()
@@ -96,6 +110,7 @@ def calc_atr(df, p=14):
 
 def calc_vp(df, bins=20):
     lo, hi = df['low'].min(), df['high'].max()
+    if lo == hi: return df['close'].iloc[-1]
     edges  = np.linspace(lo, hi, bins+1)
     vp     = [{'price': (edges[i]+edges[i+1])/2,
                'volume': df.loc[(df['close']>=edges[i])&(df['close']<edges[i+1]),'vol'].sum()}
@@ -110,46 +125,145 @@ def calc_cvd(df):
 
 def calc_stoch(df, k=14, d=3):
     lo = df['low'].rolling(k).min(); hi = df['high'].rolling(k).max()
-    pk = 100 * (df['close'] - lo) / (hi - lo)
+    denom = (hi - lo).replace(0, np.nan)
+    pk = 100 * (df['close'] - lo) / denom
     return pk, pk.rolling(d).mean()
 
 def calc_vwap(df):
     tp = (df['high'] + df['low'] + df['close']) / 3
-    return (tp * df['vol']).cumsum() / df['vol'].cumsum()
+    vol_sum = df['vol'].cumsum().replace(0, np.nan)
+    return (tp * df['vol']).cumsum() / vol_sum
 
 # ============================================================
-# 🌐 OHLCV REST
+# 🌐 DYNAMIC WATCHLIST from Binance
 # ============================================================
-def fetch_ohlcv_all():
-    print("📡 Fetching OHLCV...")
-    for sym in WATCHLIST:
-        sd = {}
-        for tf in TIMEFRAMES:
+def load_watchlist():
+    """Fetch all active USDT perpetual futures from Binance with sufficient volume."""
+    global WATCHLIST
+    print("📋 Loading Binance futures symbols...")
+    try:
+        # Get 24h tickers for volume filter
+        url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
+        resp = requests.get(url, timeout=15)
+        tickers = resp.json()
+
+        symbols = []
+        for t in tickers:
+            sym = t.get('symbol', '')
+            if not sym.endswith('USDT'): continue
             try:
-                raw = exchange.fetch_ohlcv(sym, tf, limit=TF_LIMIT[tf])
-                if raw and len(raw) >= 30:
-                    sd[tf] = pd.DataFrame(raw, columns=['ts','open','high','low','close','vol'])
-                time.sleep(0.15)
-            except Exception as e:
-                print(f"  OHLCV {sym} {tf}: {e}")
+                vol = float(t.get('quoteVolume', 0))
+                if vol >= MIN_VOLUME_USDT:
+                    ccxt_sym = sym[:-4] + '/USDT'
+                    symbols.append((ccxt_sym, vol))
+            except Exception:
+                continue
+
+        # Sort by volume descending
+        symbols.sort(key=lambda x: x[1], reverse=True)
+        new_watchlist = [s[0] for s in symbols]
+
+        with watchlist_lock:
+            WATCHLIST.clear()
+            WATCHLIST.extend(new_watchlist)
+
+        print(f"✅ Watchlist loaded: {len(WATCHLIST)} symbols (min vol ${MIN_VOLUME_USDT/1e6:.0f}M)")
+        return True
+    except Exception as e:
+        print(f"❌ Watchlist load failed: {e}")
+        # Fallback to basic list
+        fallback = [
+            'BTC/USDT','ETH/USDT','BNB/USDT','SOL/USDT','XRP/USDT',
+            'DOGE/USDT','ADA/USDT','AVAX/USDT','LINK/USDT','DOT/USDT',
+            'MATIC/USDT','UNI/USDT','ATOM/USDT','LTC/USDT','BCH/USDT'
+        ]
+        with watchlist_lock:
+            WATCHLIST.clear()
+            WATCHLIST.extend(fallback)
+        print(f"⚠️  Using fallback watchlist: {len(WATCHLIST)} symbols")
+        return False
+
+def watchlist_refresh_loop():
+    """Refresh watchlist every 6 hours."""
+    while True:
+        time.sleep(6 * 3600)
+        load_watchlist()
+
+# ============================================================
+# 🌐 OHLCV REST - non-blocking batch fetch
+# ============================================================
+def fetch_ohlcv_symbol(sym):
+    """Fetch all timeframes for one symbol. Returns True on success."""
+    sd = {}
+    for tf in TIMEFRAMES:
+        try:
+            raw = exchange.fetch_ohlcv(sym, tf, limit=TF_LIMIT[tf])
+            if raw and len(raw) >= 30:
+                sd[tf] = pd.DataFrame(raw, columns=['ts','open','high','low','close','vol'])
+            time.sleep(0.05)
+        except Exception as e:
+            pass  # silently skip, retry next cycle
+    if sd:
         with ohlcv_lock:
             ohlcv_cache[sym] = sd
-    print(f"✅ OHLCV cached for {len(ohlcv_cache)} symbols")
+        return True
+    return False
+
+def fetch_ohlcv_batch(symbols):
+    """Fetch OHLCV for a batch of symbols using thread pool."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    done = 0
+    with ThreadPoolExecutor(max_workers=SCAN_WORKERS) as executor:
+        futures = {executor.submit(fetch_ohlcv_symbol, sym): sym for sym in symbols}
+        for f in as_completed(futures):
+            done += 1
+            startup_status['progress'] = done
+    return done
+
+def initial_ohlcv_load():
+    """Background thread: load OHLCV for all symbols, then mark ready."""
+    print(f"📡 Starting OHLCV fetch for {len(WATCHLIST)} symbols...")
+    startup_status['phase'] = 'LOADING_OHLCV'
+    startup_status['total'] = len(WATCHLIST)
+    startup_status['progress'] = 0
+
+    # First load top 50 by volume (already sorted) so we have data fast
+    with watchlist_lock:
+        wl = list(WATCHLIST)
+
+    priority = wl[:50]
+    rest = wl[50:]
+
+    fetch_ohlcv_batch(priority)
+    startup_status['phase'] = 'SCANNING'
+    startup_status['ready'] = True
+    print(f"✅ Priority OHLCV done ({len(priority)} symbols). Scanner starting...")
+
+    # Load remaining in background
+    if rest:
+        fetch_ohlcv_batch(rest)
+    print(f"✅ Full OHLCV done. {len(ohlcv_cache)} symbols cached.")
 
 def ohlcv_refresh_loop():
     while True:
         time.sleep(300)
-        fetch_ohlcv_all()
+        with watchlist_lock:
+            wl = list(WATCHLIST)
+        fetch_ohlcv_batch(wl)
 
 # ============================================================
-# 🔌 WEBSOCKET
+# 🔌 WEBSOCKET — mini ticker for all symbols
 # ============================================================
 def _build_ws_url():
+    """Use combined stream: mini ticker array (all symbols) + klines for top symbols."""
+    with watchlist_lock:
+        top = list(WATCHLIST[:30])  # WS klines for top 30 only (avoid URL limit)
+
     streams = ["!miniTicker@arr"]
-    for sym in WATCHLIST:
+    for sym in top:
         t = _sym(sym).lower()
-        for tf in TIMEFRAMES:
-            streams.append(f"{t}@kline_{tf}")
+        streams.append(f"{t}@kline_1m")
+        streams.append(f"{t}@kline_5m")
         streams.append(f"{t}@depth5@500ms")
     return "wss://fstream.binance.com/stream?streams=" + "/".join(streams)
 
@@ -159,33 +273,35 @@ def _on_msg(ws, raw):
         data   = msg.get('data', msg)
         stream = msg.get('stream', '')
 
-        if isinstance(data, list):                          # mini ticker
+        if isinstance(data, list):  # mini ticker
             with ws_lock:
                 for item in data:
-                    key   = item.get('s','').replace('USDT','/USDT')
-                    price = float(item.get('c', 0))
-                    if key in WATCHLIST and price > 0:
-                        ws_prices[key] = price
+                    raw_sym = item.get('s', '')
+                    if raw_sym.endswith('USDT'):
+                        key   = raw_sym[:-4] + '/USDT'
+                        price = float(item.get('c', 0))
+                        if price > 0:
+                            ws_prices[key] = price
             return
 
-        if 'kline' in stream:                               # kline
+        if 'kline' in stream:
             k = data.get('k', {})
             if not k: return
-            sym    = k.get('s','').replace('USDT','/USDT')
-            tf_raw = k.get('i','')
-            if sym not in WATCHLIST: return
+            raw_sym = k.get('s', '')
+            sym = raw_sym[:-4] + '/USDT' if raw_sym.endswith('USDT') else raw_sym
+            tf_raw = k.get('i', '')
             kd = {'open': float(k['o']), 'high': float(k['h']),
                   'low':  float(k['l']), 'close': float(k['c']),
-                  'vol':  float(k['v']), 'closed': k.get('x',False), 'ts': k.get('t',0)}
+                  'vol':  float(k['v']), 'closed': k.get('x', False), 'ts': k.get('t', 0)}
             with ws_lock:
                 ws_kline.setdefault(sym, {})[tf_raw] = kd
             if kd['closed']:
                 _append_kline(sym, tf_raw, kd)
             return
 
-        if 'depth' in stream:                               # orderbook
-            sym = stream.split('@')[0].upper().replace('USDT','/USDT')
-            if sym not in WATCHLIST: return
+        if 'depth' in stream:
+            raw_sym = stream.split('@')[0].upper()
+            sym = raw_sym[:-4] + '/USDT' if raw_sym.endswith('USDT') else raw_sym
             with ws_lock:
                 ws_orderbook[sym] = {
                     'bids': [[float(p),float(q)] for p,q in data.get('b',[])],
@@ -201,38 +317,45 @@ def _append_kline(sym, tf, k):
                              'low':k['low'],'close':k['close'],'vol':k['vol']}])
         ohlcv_cache[sym][tf] = pd.concat([ohlcv_cache[sym][tf], nr], ignore_index=True).tail(150)
 
-def _on_err(ws, e):  print(f"⚠️  WS: {e}")
+def _on_err(ws, e):   print(f"⚠️ WS error: {e}")
 def _on_close(ws, *_):
-    print("🔌 WS closed, reconnect in 5s...")
-    time.sleep(5); start_ws()
-def _on_open(ws):    print("✅ WS connected")
+    print("🔌 WS closed, reconnect in 10s...")
+    time.sleep(10); start_ws()
+def _on_open(ws):     print("✅ WS connected")
 
 _ws = None
 def start_ws():
     global _ws
-    _ws = websocket.WebSocketApp(_build_ws_url(),
-                                  on_message=_on_msg, on_error=_on_err,
-                                  on_close=_on_close, on_open=_on_open)
-    threading.Thread(target=_ws.run_forever,
-                     kwargs={'ping_interval':20,'ping_timeout':10}, daemon=True).start()
+    try:
+        url = _build_ws_url()
+        _ws = websocket.WebSocketApp(url,
+                                     on_message=_on_msg, on_error=_on_err,
+                                     on_close=_on_close, on_open=_on_open)
+        threading.Thread(target=_ws.run_forever,
+                         kwargs={'ping_interval':20,'ping_timeout':10}, daemon=True).start()
+    except Exception as e:
+        print(f"WS start failed: {e}")
 
 # ============================================================
 # 💸 FUNDING POLL
 # ============================================================
-def _fetch_funding():
-    for sym in WATCHLIST:
+def _fetch_funding_batch(symbols):
+    for sym in symbols:
         try:
             url  = f"https://fapi.binance.com/fapi/v1/fundingRate?symbol={_sym(sym)}&limit=1"
             data = requests.get(url, timeout=5).json()
             if data and isinstance(data, list):
                 with ws_lock:
-                    ws_funding[sym] = float(data[-1].get('fundingRate',0)) * 100
-            time.sleep(0.1)
-        except Exception: pass
+                    ws_funding[sym] = float(data[-1].get('fundingRate', 0)) * 100
+            time.sleep(0.05)
+        except Exception:
+            pass
 
 def funding_loop():
     while True:
-        _fetch_funding()
+        with watchlist_lock:
+            wl = list(WATCHLIST)
+        _fetch_funding_batch(wl)
         time.sleep(1800)
 
 # ============================================================
@@ -253,25 +376,40 @@ def ob_metrics(sym):
     }
 
 # ============================================================
-# 🌐 OI & L/S RATIO
+# 🌐 OI & L/S RATIO (cached to avoid rate limit)
 # ============================================================
+_oi_cache = {}
+_ls_cache = {}
+
 def get_oi(sym):
+    cached = _oi_cache.get(sym)
+    if cached and time.time() - cached[0] < 120:
+        return cached[1]
     try:
-        return float(requests.get(
+        val = float(requests.get(
             f"https://fapi.binance.com/fapi/v1/openInterest?symbol={_sym(sym)}", timeout=5
         ).json().get('openInterest', 0))
-    except: return 0.0
+        _oi_cache[sym] = (time.time(), val)
+        return val
+    except:
+        return _oi_cache.get(sym, (0, 0.0))[1]
 
 def get_ls(sym):
+    cached = _ls_cache.get(sym)
+    if cached and time.time() - cached[0] < 120:
+        return cached[1]
     try:
         data = requests.get(
             f"https://fapi.binance.com/futures/data/globalLongShortAccountRatio"
             f"?symbol={_sym(sym)}&period=1h&limit=1", timeout=5
         ).json()
         if data and isinstance(data, list):
-            return float(data[0].get('longShortRatio', 1.0))
-    except: pass
-    return 1.0
+            val = float(data[0].get('longShortRatio', 1.0))
+            _ls_cache[sym] = (time.time(), val)
+            return val
+    except:
+        pass
+    return _ls_cache.get(sym, (0, 1.0))[1]
 
 # ============================================================
 # 🧠 ANALYSIS ENGINE
@@ -292,23 +430,26 @@ def analyze(sym):
         if rt > 0:
             df.iloc[-1, df.columns.get_loc('close')] = rt
 
-        df['rsi']                               = calc_rsi(df['close'])
-        df['ema9']                              = calc_ema(df['close'], 9)
-        df['ema21']                             = calc_ema(df['close'], 21)
-        df['ema50']                             = calc_ema(df['close'], 50)
-        df['macd'], df['msig'], df['mhist']     = calc_macd(df['close'])
-        df['bbu'], df['bbm'], df['bbl']         = calc_bb(df['close'])
-        df['atr']                               = calc_atr(df)
-        df['cvd']                               = calc_cvd(df)
-        df['vwap']                              = calc_vwap(df)
-        df['stk'], df['std']                    = calc_stoch(df)
+        try:
+            df['rsi']                               = calc_rsi(df['close'])
+            df['ema9']                              = calc_ema(df['close'], 9)
+            df['ema21']                             = calc_ema(df['close'], 21)
+            df['ema50']                             = calc_ema(df['close'], 50)
+            df['macd'], df['msig'], df['mhist']     = calc_macd(df['close'])
+            df['bbu'], df['bbm'], df['bbl']         = calc_bb(df['close'])
+            df['atr']                               = calc_atr(df)
+            df['cvd']                               = calc_cvd(df)
+            df['vwap']                              = calc_vwap(df)
+            df['stk'], df['std']                    = calc_stoch(df)
+        except Exception:
+            continue
 
         last = df.iloc[-1]; prev = df.iloc[-2]
         poc  = calc_vp(df)
 
         df['vavg'] = df['vol'].rolling(20).mean()
         vavg       = df['vavg'].iloc[-1]
-        vspike     = last['vol'] / vavg if vavg > 0 else 1
+        vspike     = last['vol'] / vavg if (vavg and vavg > 0) else 1
 
         gv  = df[df['close'] > df['open']]['vol'].sum()
         rv  = df[df['close'] < df['open']]['vol'].sum()
@@ -317,7 +458,8 @@ def analyze(sym):
         score, reasons = 50, []
         rsi = last['rsi']
 
-        if   rsi < 30: score += 15; reasons.append("RSI Oversold")
+        if   pd.isna(rsi): pass
+        elif rsi < 30: score += 15; reasons.append("RSI Oversold")
         elif rsi < 45: score += 7;  reasons.append("RSI Bullish Zone")
         elif rsi > 70: score -= 15; reasons.append("RSI Overbought")
         elif rsi > 55: score -= 7;  reasons.append("RSI Bearish Zone")
@@ -358,7 +500,8 @@ def analyze(sym):
         score = max(0, min(100, score))
         direction = "LONG" if score >= 70 else "SHORT" if score <= 30 else "NEUTRAL"
 
-        atr_v = last['atr']; cp = last['close']
+        atr_v = last['atr'] if not pd.isna(last['atr']) else 0
+        cp    = last['close']
         if   direction == "LONG":
             tp1,tp2,tp3 = cp+atr_v*1.5, cp+atr_v*3.0, cp+atr_v*5.0; sl = cp-atr_v*1.5
         elif direction == "SHORT":
@@ -367,20 +510,24 @@ def analyze(sym):
             tp1=tp2=tp3=sl=cp
 
         results[tf] = {
-            'price':     cp,        'direction':  direction,
-            'score':     round(score,1),
-            'rsi':       round(float(rsi),2),
+            'price':     round(float(cp),6),
+            'direction':  direction,
+            'score':     round(float(score),1),
+            'rsi':       round(float(rsi),2) if not pd.isna(rsi) else 50,
             'macd_hist': round(float(last['mhist']),6),
             'bb_upper':  round(float(last['bbu']),6),
             'bb_lower':  round(float(last['bbl']),6),
             'vwap':      round(float(last['vwap']),6),
             'atr':       round(float(atr_v),6),
-            'mpi':       round(mpi,1),     'vol_spike': round(vspike,2),
+            'mpi':       round(mpi,1),
+            'vol_spike': round(vspike,2),
             'cvd':       round(float(df['cvd'].iloc[-1]),2),
-            'stoch_k':   round(float(last['stk']),2),
+            'stoch_k':   round(float(last['stk']),2) if not pd.isna(last['stk']) else 50,
             'poc':       round(poc,6),
-            'tp1':round(tp1,6),'tp2':round(tp2,6),'tp3':round(tp3,6),'sl':round(sl,6),
-            'reasons':   reasons,   'ob': ob,
+            'tp1':round(float(tp1),6),'tp2':round(float(tp2),6),'tp3':round(float(tp3),6),
+            'sl':round(float(sl),6),
+            'reasons':   reasons,
+            'ob':        ob,
         }
 
     if not results: return None
@@ -390,19 +537,31 @@ def analyze(sym):
     try:    oi = get_oi(sym); ls = get_ls(sym)
     except: oi, ls = 0, 1.0
 
-    agg = round(sum(results[tf]['score'] * TF_WEIGHTS[tf]
-                    for tf in results if tf in TF_WEIGHTS), 1)
+    # Weighted aggregate score
+    weighted_sum  = sum(results[tf]['score'] * TF_WEIGHTS[tf] for tf in results if tf in TF_WEIGHTS)
+    weight_total  = sum(TF_WEIGHTS[tf] for tf in results if tf in TF_WEIGHTS)
+    agg = round(weighted_sum / weight_total, 1) if weight_total > 0 else 50.0
+
     agg_dir = "LONG" if agg >= 65 else "SHORT" if agg <= 35 else "NEUTRAL"
     grade   = "A+" if (agg >= 75 or agg <= 25) else "B" if (agg >= 65 or agg <= 35) else "C"
     price   = rt if rt > 0 else results.get('1h', results[list(results)[-1]])['price']
 
+    # Signal strength: how far from neutral (50)
+    signal_strength = abs(agg - 50)
+
     return {
-        'symbol': sym, 'timeframes': results,
-        'agg_score': agg, 'agg_direction': agg_dir, 'grade': grade,
-        'funding_rate': round(funding,4), 'open_interest': round(oi,2),
-        'ls_ratio': round(ls,3), 'price': price,
-        'orderbook': ob_metrics(sym),
-        'timestamp': datetime.now(timezone.utc).strftime('%H:%M:%S')
+        'symbol':        sym,
+        'timeframes':    results,
+        'agg_score':     agg,
+        'agg_direction': agg_dir,
+        'grade':         grade,
+        'signal_strength': round(signal_strength, 1),
+        'funding_rate':  round(funding, 4),
+        'open_interest': round(oi, 2),
+        'ls_ratio':      round(ls, 3),
+        'price':         price,
+        'orderbook':     ob_metrics(sym),
+        'timestamp':     datetime.now(timezone.utc).strftime('%H:%M:%S')
     }
 
 # ============================================================
@@ -410,13 +569,19 @@ def analyze(sym):
 # ============================================================
 def load_account():
     if os.path.exists(ACCOUNT_FILE):
-        with open(ACCOUNT_FILE,'r') as f: return json.load(f)
+        try:
+            with open(ACCOUNT_FILE,'r') as f: return json.load(f)
+        except Exception:
+            pass
     return {'balance': INITIAL_BALANCE, 'initial_balance': INITIAL_BALANCE,
             'positions': {}, 'history': [], 'total_trades': 0,
             'winning_trades': 0, 'total_pnl': 0.0}
 
 def save_account(a):
-    with open(ACCOUNT_FILE,'w') as f: json.dump(a, f, indent=2)
+    try:
+        with open(ACCOUNT_FILE,'w') as f: json.dump(a, f, indent=2)
+    except Exception:
+        pass  # ephemeral FS on Railway free - don't crash
 
 def _pnl(pos, p):
     if pos['direction'] == 'LONG':
@@ -509,23 +674,31 @@ def get_stats(account, prices):
     }
 
 # ============================================================
-# 📡 SCANNER LOOP
+# 📡 SCANNER LOOP — scans ALL symbols, keeps top N
 # ============================================================
 def scanner_loop():
-    while not ohlcv_cache:
-        print("⏳ Waiting OHLCV cache..."); time.sleep(2)
+    # Wait until priority OHLCV is loaded
+    while not startup_status['ready']:
+        print("⏳ Waiting for OHLCV cache..."); time.sleep(3)
     print("🔁 Scanner started")
+
     while True:
-        for sym in WATCHLIST:
+        with watchlist_lock:
+            wl = list(WATCHLIST)
+
+        for sym in wl:
             try:
                 res = analyze(sym)
                 if res is None: continue
                 with scan_lock:
                     market_data[sym]    = res
                     current_prices[sym] = res['price']
+
                 account = load_account()
                 for c in update_positions(account, current_prices):
                     tg_closed(c)
+
+                # Auto-trade on strong signals (A+ or B grade, non-neutral)
                 if res['grade'] in ('A+','B') and res['agg_direction'] != 'NEUTRAL':
                     sig = f"{sym}_{res['agg_direction']}"
                     if last_signals.get(sym) != sig:
@@ -538,9 +711,9 @@ def scanner_loop():
                                 last_signals[sym] = sig
                                 tg_opened(pos)
             except Exception as e:
-                print(f"Scanner {sym}: {e}")
-            time.sleep(0.3)
-        time.sleep(5)
+                pass  # don't crash scanner on one bad symbol
+            time.sleep(0.1)
+        time.sleep(3)
 
 # ============================================================
 # 📬 TELEGRAM
@@ -625,6 +798,22 @@ if bot:
             f"💸 Funding: `{data['funding_rate']:+.4f}%` | OI: `{data['open_interest']:,.0f}`\n\n"
             f"*Timeframes:*\n{lines}", parse_mode='Markdown')
 
+    @bot.message_handler(commands=['top'])
+    def cmd_top(m):
+        with scan_lock:
+            data = list(market_data.values())
+        data = [d for d in data if d['agg_direction'] != 'NEUTRAL']
+        data.sort(key=lambda x: x['signal_strength'], reverse=True)
+        top = data[:10]
+        lines = ""
+        for d in top:
+            icon = "🟢" if d['agg_direction'] == 'LONG' else "🔴"
+            lines += f"{icon} *{d['symbol']}* | {d['grade']} | Score: `{d['agg_score']}`\n"
+        bot.send_message(m.chat.id,
+            f"🏆 *TOP 10 SIGNALS*\n━━━━━━━━━━━━━━━━\n{lines or 'No strong signals'}\n"
+            f"🕐 `{datetime.now(timezone.utc).strftime('%H:%M:%S')} UTC`",
+            parse_mode='Markdown')
+
     @bot.message_handler(commands=['close'])
     def cmd_close(m):
         parts = m.text.split()
@@ -633,6 +822,12 @@ if bot:
         account = load_account()
         result, msg = close_manual(account, parts[1].upper(), current_prices)
         bot.reply_to(m, f"✅ Closed. PnL: ${result['realized_pnl']:+.4f}" if result else f"❌ {msg}")
+
+    @bot.message_handler(commands=['symbols'])
+    def cmd_symbols(m):
+        with watchlist_lock:
+            count = len(WATCHLIST)
+        bot.reply_to(m, f"📋 Scanning *{count}* symbols from Binance Futures", parse_mode='Markdown')
 
 # ============================================================
 # 🌐 FLASK ROUTES
@@ -651,12 +846,44 @@ def index():
     if not _auth(): return _deny()
     with open(HTML_FILE, 'r') as f: return f.read()
 
+@app.route('/api/status')
+def api_status():
+    """Startup progress endpoint — frontend polls this."""
+    with watchlist_lock:
+        wl_count = len(WATCHLIST)
+    with scan_lock:
+        scanned = len(market_data)
+    return jsonify({
+        "phase":    startup_status['phase'],
+        "progress": startup_status['progress'],
+        "total":    startup_status['total'],
+        "ready":    startup_status['ready'],
+        "watchlist": wl_count,
+        "scanned":  scanned,
+    })
+
 @app.route('/api/market')
 def api_market():
     if not _auth(): return jsonify({"error":"Unauthorized"}), 401
     with scan_lock:
-        data = list(market_data.values())
-    return jsonify({"data": data, "timestamp": datetime.now(timezone.utc).strftime('%H:%M:%S')})
+        all_data = list(market_data.values())
+
+    # Sort by signal strength (strongest signal first)
+    all_data.sort(key=lambda x: x.get('signal_strength', 0), reverse=True)
+
+    # Return top N, and summary counts
+    longs  = sum(1 for d in all_data if d['agg_direction'] == 'LONG')
+    shorts = sum(1 for d in all_data if d['agg_direction'] == 'SHORT')
+    ap_grade = sum(1 for d in all_data if d['grade'] == 'A+')
+
+    return jsonify({
+        "data": all_data[:TOP_N],
+        "total_scanned": len(all_data),
+        "longs": longs,
+        "shorts": shorts,
+        "a_plus": ap_grade,
+        "timestamp": datetime.now(timezone.utc).strftime('%H:%M:%S')
+    })
 
 @app.route('/api/prices')
 def api_prices():
@@ -692,21 +919,29 @@ def api_close(pid):
     return jsonify({"success": False, "error": msg}), 400
 
 # ============================================================
-# 🚀 STARTUP
+# 🚀 STARTUP — non-blocking, Flask binds port first
 # ============================================================
 if __name__ == "__main__":
     print("🚀 APEX Trading Bot starting...")
 
-    fetch_ohlcv_all()                                                        # 1. REST OHLCV
-    start_ws()                                                               # 2. WebSocket
-    threading.Thread(target=funding_loop,  daemon=True).start()             # 3. Funding poll
-    threading.Thread(target=ohlcv_refresh_loop, daemon=True).start()        # 4. OHLCV refresh
-    threading.Thread(target=scanner_loop,  daemon=True).start()             # 5. Scanner
-    threading.Thread(target=hourly_loop,   daemon=True).start()             # 6. Hourly report
+    # Step 1: Load watchlist FIRST (fast REST call)
+    load_watchlist()
+
+    # Step 2: Start Flask IMMEDIATELY (Railway health check needs port bound)
+    port = int(os.environ.get("PORT", 5000))
+    print(f"🌐 Flask binding on :{port}")
+
+    # Step 3: Start all background threads
+    threading.Thread(target=initial_ohlcv_load,      daemon=True).start()  # OHLCV fetch
+    threading.Thread(target=start_ws,                daemon=True).start()  # WebSocket
+    threading.Thread(target=funding_loop,            daemon=True).start()  # Funding
+    threading.Thread(target=ohlcv_refresh_loop,      daemon=True).start()  # OHLCV refresh
+    threading.Thread(target=scanner_loop,            daemon=True).start()  # Scanner
+    threading.Thread(target=hourly_loop,             daemon=True).start()  # Hourly TG
+    threading.Thread(target=watchlist_refresh_loop,  daemon=True).start()  # Watchlist refresh
     if bot:
         threading.Thread(target=lambda: bot.infinity_polling(none_stop=True),
-                         daemon=True).start()                                # 7. Telegram
+                         daemon=True).start()
 
-    port = int(os.environ.get("PORT", 5000))
-    print(f"🌐 Flask on :{port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    # Step 4: Flask runs (non-blocking threads handle everything else)
+    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
