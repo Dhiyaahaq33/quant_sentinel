@@ -707,6 +707,6 @@ if __name__ == "__main__":
         threading.Thread(target=lambda: bot.infinity_polling(none_stop=True),
                          daemon=True).start()                                # 7. Telegram
 
-    port = int(os.environ.get("PORT", 8080))
+    port = int(os.environ.get("PORT", 5000))
     print(f"🌐 Flask on :{port}")
     app.run(host='0.0.0.0', port=port, debug=False)
