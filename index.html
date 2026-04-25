@@ -394,6 +394,18 @@
   </div>
 </div>
 
+<div style="display: inline-flex; align-items: center; gap: 5px; margin-left: 10px; border-left: 1px solid var(--border); padding-left: 10px;">
+    <input type="number" id="custom-balance-input" placeholder="Set Balance" style="width: 80px; background: var(--bg2); border: 1px solid var(--border); color: var(--yellow); padding: 4px; border-radius: 4px; font-family: 'Rajdhani';">
+    <button onclick="setBalance()" style="background: var(--green); border:none; color:black; padding: 4px 8px; border-radius:4px; cursor:pointer; font-weight:bold; font-size:11px;">SET $</button>
+</div>
+
+<div style="display: inline-flex; align-items: center; gap: 8px; margin-left: 15px; border-left: 1px solid var(--border); padding-left: 15px;">
+    <span style="font-size: 12px; color: var(--text2);">MARGIN:</span>
+    <input type="number" id="margin-input" value="10" min="1" max="50" style="width: 50px; background: var(--bg2); border: 1px solid var(--border); color: var(--green); padding: 4px; border-radius: 4px; font-family: 'Rajdhani';">
+    <span style="font-size: 12px; color: var(--text2);">%</span>
+    <button onclick="updateMargin()" class="btn-small" style="background: var(--blue); border:none; color:white; padding: 4px 8px; border-radius:4px; cursor:pointer; font-size:11px;">SET</button>
+</div>
+
 <div class="layout">
 
   <!-- SIDEBAR -->
@@ -564,6 +576,41 @@ function setFilter(f, el) {
 // ============================================================
 let startupDone = false;
 
+async function setBalance() {
+    const val = document.getElementById('custom-balance-input').value;
+    if(!val) return;
+    
+    if(confirm(`Ubah saldo menjadi $${val}?`)) {
+        const res = await fetch('/api/account/set_balance', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ balance: val })
+        });
+        const data = await res.json();
+        if(data.success) {
+            showToast(`Balance updated to $${val}`);
+            fetchAccount(); // Langsung update angka di layar
+        }
+    }
+}
+
+async function updateMargin() {
+    const val = document.getElementById('margin-input').value;
+    try {
+        const res = await fetch('/api/config/margin', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ margin: val })
+        });
+        const data = await res.json();
+        if(data.success) {
+            showToast(`Margin updated to ${val}% per trade`);
+        } else {
+            alert(data.error);
+        }
+    } catch(e) { console.error(e); }
+}
+
 async function checkStartupStatus() {
   try {
     const r = await fetch('/api/status');
@@ -591,6 +638,7 @@ async function checkStartupStatus() {
     return d.ready;
   } catch(e) { return false; }
 }
+
 
 async function confirmReset() {
   if (confirm("Apakah Anda yakin ingin meriset saldo ke $1000 dan menghapus semua riwayat trading?")) {
