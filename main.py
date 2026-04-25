@@ -30,16 +30,13 @@ TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h']
 TF_LIMIT   = {tf: 100 for tf in TIMEFRAMES}
 TF_WEIGHTS = {'1m': 0.05, '5m': 0.10, '15m': 0.20, '30m': 0.25, '1h': 0.40}
 
-# Top N symbols to show on dashboard (sorted by signal strength)
 TOP_N = 30
 
-# How many symbols to scan concurrently
 SCAN_WORKERS = 5
 
-# Min volume (USDT) to include a symbol - filter low liquidity coins
 MIN_VOLUME_USDT = 5_000_000  # 5M USDT 24h volume
 
-TOKEN        = os.getenv("TOKEN_MACRO")
+TOKEN        = os.getenv("TOKEN_HACK")
 CHAT_ID      = os.getenv("CHAT_ID")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "181268")
 
@@ -62,7 +59,8 @@ DATA_SOURCE = 'indodax'
 try:
     import telebot
     bot = telebot.TeleBot(TOKEN) if TOKEN else None
-except ImportError:
+except Exception as e:
+    print(f"❌ Telegram Init Error: {e}")
     bot = None
 
 # ============================================================
@@ -77,16 +75,14 @@ ws_orderbook: dict = {}
 ws_funding:   dict = {}
 ws_lock             = threading.Lock()
 
-market_data:    dict = {}   # symbol -> latest analysis
+market_data:    dict = {}   
 current_prices: dict = {}
 last_signals:   dict = {}
 scan_lock             = threading.Lock()
 
-# Dynamic watchlist - populated from Binance
 WATCHLIST: list = []
 watchlist_lock = threading.Lock()
 
-# Startup status
 startup_status = {"phase": "STARTING", "progress": 0, "total": 0, "ready": False}
 
 # ============================================================
@@ -154,7 +150,6 @@ def load_watchlist_indodax():
     print("📋 Loading Indodax symbols...")
     try:
         markets = exchange_indodax.load_markets()
-        # Mengambil pair IDR dan USDT
         symbols = [s for s in markets if s.endswith('/IDR') or s.endswith('/USDT')]
         with watchlist_lock:
             WATCHLIST.clear()
@@ -171,7 +166,6 @@ def load_watchlist():
     global WATCHLIST
     print("📋 Loading Binance futures symbols...")
     try:
-        # Get 24h tickers for volume filter
         url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
         resp = requests.get(url, timeout=15)
         tickers = resp.json()
@@ -188,7 +182,6 @@ def load_watchlist():
             except Exception:
                 continue
 
-        # Sort by volume descending
         symbols.sort(key=lambda x: x[1], reverse=True)
         new_watchlist = [s[0] for s in symbols]
 
@@ -200,7 +193,6 @@ def load_watchlist():
         return True
     except Exception as e:
         print(f"❌ Watchlist load failed: {e}")
-        # Fallback to basic list
         fallback = ['BTC/USDT','ETH/USDT','SOL/USDT','XRP/USDT','DOGE/USDT']
         with watchlist_lock:
             WATCHLIST.clear()
@@ -224,12 +216,10 @@ def watchlist_refresh_loop():
 def fetch_ohlcv_symbol(sym):
     """Fetch data dari Indodax jika DATA_SOURCE adalah indodax"""
     sd = {}
-    # Gunakan exchange_indodax jika DATA_SOURCE disetel ke indodax
     active_exchange = exchange_indodax if DATA_SOURCE == 'indodax' else exchange
     
     for tf in TIMEFRAMES:
         try:
-            # Indodax mungkin butuh limit yang lebih kecil atau penyesuaian format
             raw = active_exchange.fetch_ohlcv(sym, tf, limit=TF_LIMIT[tf])
             if raw and len(raw) >= 30:
                 sd[tf] = pd.DataFrame(raw, columns=['ts','open','high','low','close','vol'])
@@ -260,7 +250,6 @@ def initial_ohlcv_load():
     startup_status['total'] = len(WATCHLIST)
     startup_status['progress'] = 0
 
-    # First load top 50 by volume (already sorted) so we have data fast
     with watchlist_lock:
         wl = list(WATCHLIST)
 
@@ -272,7 +261,6 @@ def initial_ohlcv_load():
     startup_status['ready'] = True
     print(f"✅ Priority OHLCV done ({len(priority)} symbols). Scanner starting...")
 
-    # Load remaining in background
     if rest:
         fetch_ohlcv_batch(rest)
     print(f"✅ Full OHLCV done. {len(ohlcv_cache)} symbols cached.")
@@ -290,7 +278,7 @@ def ohlcv_refresh_loop():
 def _build_ws_url():
     """Use combined stream: mini ticker array (all symbols) + klines for top symbols."""
     with watchlist_lock:
-        top = list(WATCHLIST[:30])  # WS klines for top 30 only (avoid URL limit)
+        top = list(WATCHLIST[:30])  
 
     streams = ["!miniTicker@arr"]
     for sym in top:
@@ -306,7 +294,7 @@ def _on_msg(ws, raw):
         data   = msg.get('data', msg)
         stream = msg.get('stream', '')
 
-        if isinstance(data, list):  # mini ticker
+        if isinstance(data, list):  
             with ws_lock:
                 for item in data:
                     raw_sym = item.get('s', '')
@@ -453,10 +441,8 @@ def is_intrinsically_strong(analysis):
     if not analysis: return False
     
     agg_score = analysis.get('agg_score', 50)
-    # Ambil data timeframe 1 jam untuk konfirmasi trend
     tf_1h = analysis['timeframes'].get('1h', {})
     
-    # Kriteria: Grade A+, Volume Spike > 1.5x, dan trend 1H searah dengan sinyal agregat
     is_a_plus = analysis['grade'] == 'A+'
     vol_spike = tf_1h.get('vol_spike', 0) > 1.5
     trend_aligned = tf_1h.get('direction') == analysis['agg_direction']
@@ -587,7 +573,6 @@ def analyze(sym):
     try:    oi = get_oi(sym); ls = get_ls(sym)
     except: oi, ls = 0, 1.0
 
-    # Weighted aggregate score
     weighted_sum  = sum(results[tf]['score'] * TF_WEIGHTS[tf] for tf in results if tf in TF_WEIGHTS)
     weight_total  = sum(TF_WEIGHTS[tf] for tf in results if tf in TF_WEIGHTS)
     agg = round(weighted_sum / weight_total, 1) if weight_total > 0 else 50.0
@@ -596,7 +581,6 @@ def analyze(sym):
     grade   = "A+" if (agg >= 75 or agg <= 25) else "B" if (agg >= 65 or agg <= 35) else "C"
     price   = rt if rt > 0 else results.get('1h', results[list(results)[-1]])['price']
 
-    # Signal strength: how far from neutral (50)
     signal_strength = abs(agg - 50)
 
     return {
@@ -635,7 +619,7 @@ def reset_account():
 def update_margin_config(new_margin_pct):
     """Mengatur persentase margin per trade (contoh: 0.20 untuk 20%)"""
     global MARGIN_PER_TRADE
-    if 0.01 <= new_margin_pct <= 0.50: # Batas aman 1% - 50%
+    if 0.01 <= new_margin_pct <= 0.50: 
         MARGIN_PER_TRADE = new_margin_pct
         return True
     return False
@@ -654,7 +638,7 @@ def save_account(a):
     try:
         with open(ACCOUNT_FILE,'w') as f: json.dump(a, f, indent=2)
     except Exception:
-        pass  # ephemeral FS on Railway free - don't crash
+        pass  
 
 def _pnl(pos, p):
     if pos['direction'] == 'LONG':
@@ -672,29 +656,43 @@ def open_pos(account, sym, direction, entry, tp1, tp2, tp3, sl, score, reasons):
     if len(account['positions']) >= MAX_OPEN_POSITIONS:
         return None, "Max positions reached"
     
-    margin = account['balance'] * MARGIN_PER_TRADE
-    
-    min_required_balance = account['balance'] * SAFE_MARGIN_RATIO
-    if (account['balance'] - margin) < min_required_balance:
-        return None, f"Insufficient Safe Margin (Must keep 25% free)"
+    if account['balance'] > 1000:
+        margin = 100.0  
+    else:
+        margin = account['balance'] * MARGIN_PER_TRADE
         
-    if margin < 1: return None, "Insufficient balance"
+    if (account['balance'] - margin) < (INITIAL_BALANCE * 0.25):
+        return None, "Safety Trigger: Sisa saldo harus min 25%"
+
     notional = margin * LEVERAGE
-    pid      = str(uuid.uuid4())[:8].upper()
+    pid = str(uuid.uuid4())[:8].upper()
+    
     pos = {
         'id': pid, 'symbol': sym, 'direction': direction,
         'entry_price': entry, 'qty': notional/entry,
-        'margin': round(margin,4), 'notional': round(notional,4), 'leverage': LEVERAGE,
-        'tp1':tp1,'tp2':tp2,'tp3':tp3,'sl':sl,
-        'tp1_hit':False,'tp2_hit':False,
-        'score': score, 'reasons': reasons,
+        'margin': round(margin, 4), 'notional': round(notional, 4),
+        'tp1': tp1, 'tp2': tp2, 'tp3': tp3, 'sl': sl,
+        'tp1_hit': False, 'tp2_hit': False,
         'opened_at': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
-        'current_price': entry, 'unrealized_pnl': 0.0, 'pnl_pct': 0.0, 'status':'OPEN'
+        'score': score, 'indicators': ", ".join(reasons)
     }
+    
     account['positions'][pid] = pos
-    account['balance']       -= margin
-    account['total_trades']  += 1
+    account['balance'] -= margin
     save_account(account)
+
+    # --- INFO KE TELEGRAM JAM YG SAMA ---
+    msg = (
+        f"🚀 *NEW POSITION OPENED*\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"🪙 Symbol: #{sym.replace('/IDR', '').replace('/USDT', '')}\n"
+        f"📈 Signal: *{direction}* | Score: `{score}/100`\n"
+        f"💵 Entry: `{entry:.6f}`\n"
+        f"🛑 SL: `{sl:.6f}`\n"
+        f"🎯 TP1: `{tp1:.6f}` | TP2: `{tp2:.6f}` | TP3: `{tp3:.6f}`\n"
+        f"📊 Info: _{pos['indicators']}_"
+    )
+    tg_send(msg)
     return pid, pos
 
 def _close(account, pid, price, reason):
@@ -713,18 +711,39 @@ def _close(account, pid, price, reason):
 def update_positions(account, prices):
     closed = []
     for pid, pos in list(account['positions'].items()):
-        cp  = prices.get(pos['symbol'], pos['entry_price'])
-        pnl = _pnl(pos, cp)
-        pos['current_price']   = cp
-        pos['unrealized_pnl']  = round(pnl, 4)
-        pos['pnl_pct']         = round(pnl / pos['notional'] * LEVERAGE * 100, 2)
-        lng = pos['direction'] == 'LONG'
-        if not pos['tp1_hit'] and (cp >= pos['tp1'] if lng else cp <= pos['tp1']): pos['tp1_hit'] = True
-        if not pos['tp2_hit'] and (cp >= pos['tp2'] if lng else cp <= pos['tp2']): pos['tp2_hit'] = True
-        hit_sl  = (cp <= pos['sl']) if lng else (cp >= pos['sl'])
-        hit_tp3 = (cp >= pos['tp3']) if lng else (cp <= pos['tp3'])
+        cp = prices.get(pos['symbol'], pos['entry_price'])
+        is_long = pos['direction'] == 'LONG'
+        
+        # 1. TP 1 Hit: Tutup 50%, Set SL to BEP
+        if not pos['tp1_hit'] and (cp >= pos['tp1'] if is_long else cp <= pos['tp1']):
+            pos['tp1_hit'] = True
+            pos['sl'] = pos['entry_price'] # SL ke BEP
+            # Realisasi profit 50% secara virtual
+            realized = (pos['notional'] * 0.5) * ((cp - pos['entry_price'])/pos['entry_price'] if is_long else (pos['entry_price'] - cp)/pos['entry_price'])
+            account['balance'] += (pos['margin'] * 0.5) + realized
+            pos['margin'] *= 0.5
+            pos['notional'] *= 0.5
+            tg_send(f"✅ *TP1 HIT - {pos['symbol']}*\nLocked 50% Profit & SL moved to BEP.")
+
+        # 2. TP 2 Hit: Tutup 25% lagi, Set SL to TP 1
+        elif not pos['tp2_hit'] and (cp >= pos['tp2'] if is_long else cp <= pos['tp2']):
+            pos['tp2_hit'] = True
+            pos['sl'] = pos['tp1'] # SL ke TP1
+            # Realisasi lagi
+            realized = (pos['notional'] * 0.5) * ((cp - pos['entry_price'])/pos['entry_price'] if is_long else (pos['entry_price'] - cp)/pos['entry_price'])
+            account['balance'] += (pos['margin'] * 0.5) + realized
+            pos['margin'] *= 0.5
+            pos['notional'] *= 0.5
+            tg_send(f"🔥 *TP2 HIT - {pos['symbol']}*\nLocked 25% more Profit & SL moved to TP1.")
+
+        # 3. Trailing Stop / Sharp Reversal (Penurunan tajam lawan arah)
+        # Contoh: Jika harga balik arah 1.5% dari harga sekarang
+        hit_sl = (cp <= pos['sl']) if is_long else (cp >= pos['sl'])
+        hit_tp3 = (cp >= pos['tp3']) if is_long else (cp <= pos['tp3'])
+        
         if hit_sl or hit_tp3:
-            closed.append(_close(account, pid, cp, "SL Hit" if hit_sl else "TP3 Hit"))
+            closed.append(_close(account, pid, cp, "SL/Trailing Hit" if hit_sl else "TP3 Target Max"))
+            
     save_account(account)
     return closed
 
@@ -754,7 +773,6 @@ def get_stats(account, prices):
 # 📡 SCANNER LOOP — scans ALL symbols, keeps top N
 # ============================================================
 def scanner_loop():
-    # Wait until priority OHLCV is loaded
     while not startup_status['ready']:
         print("⏳ Waiting for OHLCV cache..."); time.sleep(3)
     print("🔁 Scanner started")
@@ -775,13 +793,11 @@ def scanner_loop():
                 for c in update_positions(account, current_prices):
                     tg_closed(c)
 
-                # Auto-trade on strong signals (A+ or B grade, non-neutral)
                 if is_intrinsically_strong(res):
                     sig_key = f"{sym}_{res['agg_direction']}"
                     if last_signals.get(sym) != sig_key:
                         tfd = res['timeframes'].get('1h') or res['timeframes'].get('15m')
                         if tfd:
-                            # Eksekusi beli/jual di akun virtual
                                 pid, pos = open_pos(account, sym, res['agg_direction'], res['price'],
                                                     tfd['tp1'], tfd['tp2'], tfd['tp3'], tfd['sl'],
                                                     res['agg_score'], tfd['reasons'])
@@ -789,7 +805,7 @@ def scanner_loop():
                                     last_signals[sym] = sig_key
                                     tg_opened(pos)
             except Exception as e:
-                pass  # don't crash scanner on one bad symbol
+                pass  
             time.sleep(0.1)
         time.sleep(3)
 
@@ -851,30 +867,10 @@ def hourly_loop():
 # ============================================================
 # 📬 TELEGRAM COMMANDS
 # ============================================================
+
 if bot:
     @bot.message_handler(commands=['info'])
     def cmd_info(m): tg_report()
-
-    @bot.message_handler(commands=['cek'])
-    def cmd_cek(m):
-        parts = m.text.split()
-        if len(parts) < 2:
-            bot.reply_to(m, "Usage: `/cek BTC`"); return
-        coin = parts[1].upper() + '/USDT'
-        with scan_lock:
-            data = market_data.get(coin)
-        if not data:
-            bot.reply_to(m, f"❌ No data for {coin}"); return
-        lines = "".join(
-            f"  `{tf}`: {d['direction']} ({d['score']:.0f}/100)\n"
-            for tf in TIMEFRAMES if (d := data['timeframes'].get(tf))
-        )
-        bot.send_message(m.chat.id,
-            f"🧠 *{coin}*\n━━━━━━━━━━━━━━━━\n"
-            f"💵 `${data['price']:.6f}` | Grade: `{data['grade']}` | Score: `{data['agg_score']}/100`\n"
-            f"📢 *{data['agg_direction']}*\n"
-            f"💸 Funding: `{data['funding_rate']:+.4f}%` | OI: `{data['open_interest']:,.0f}`\n\n"
-            f"*Timeframes:*\n{lines}", parse_mode='Markdown')
 
     @bot.message_handler(commands=['top'])
     def cmd_top(m):
@@ -919,10 +915,24 @@ def _auth():
 def _deny():
     return Response('Unauthorized', 401, {'WWW-Authenticate': 'Basic realm="APEX"'})
 
+@app.route('/api/account/set_balance', methods=['POST'])
+def set_custom_balance():
+    try:
+        data = request.json
+        new_val = float(data.get('balance', 1000))
+        
+        acc = load_account()
+        acc['balance'] = new_val
+        acc['initial_balance'] = new_val 
+        save_account(acc)
+        
+        return jsonify({"success": True, "new_balance": acc['balance']})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 @app.route('/')
 def index():
     if not _auth(): return _deny()
-    # Tambahkan parameter encoding='utf-8' saat membuka file
     with open(HTML_FILE, 'r', encoding='utf-8') as f: 
         return f.read()
 
@@ -948,10 +958,8 @@ def api_market():
     with scan_lock:
         all_data = list(market_data.values())
 
-    # Sort by signal strength (strongest signal first)
     all_data.sort(key=lambda x: x.get('signal_strength', 0), reverse=True)
 
-    # Return top N, and summary counts
     longs  = sum(1 for d in all_data if d['agg_direction'] == 'LONG')
     shorts = sum(1 for d in all_data if d['agg_direction'] == 'SHORT')
     ap_grade = sum(1 for d in all_data if d['grade'] == 'A+')
@@ -1007,10 +1015,29 @@ def api_reset():
 @app.route('/api/account/margin', methods=['POST'])
 def api_set_margin():
     if not _auth(): return jsonify({"error":"Unauthorized"}), 401
-    val = request.json.get('margin_pct') # Kirim dalam desimal, misal 0.15
+    val = request.json.get('margin_pct') 
     if update_margin_config(float(val)):
         return jsonify({"success": True, "new_margin": MARGIN_PER_TRADE})
     return jsonify({"success": False, "error": "Invalid margin value"}), 400
+
+SAFE_MARGIN_RATIO = 0.25 
+
+@app.route('/api/config/margin', methods=['POST'])
+def set_margin():
+    global MARGIN_PER_TRADE
+    try:
+        data = request.json
+        new_margin = float(data.get('margin')) / 100 
+        
+        if 0.01 <= new_margin <= 0.50: 
+            MARGIN_PER_TRADE = new_margin
+            return jsonify({"success": True, "new_margin": MARGIN_PER_TRADE})
+        else:
+            return jsonify({"success": False, "error": "Margin harus antara 1% - 50%"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+    
+
 
 # ============================================================
 # 🚀 STARTUP — non-blocking, Flask binds port first
@@ -1025,17 +1052,52 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print(f"🌐 Flask binding on :{port}")
 
-    # Step 3: Start all background threads
-    threading.Thread(target=initial_ohlcv_load,      daemon=True).start()  # OHLCV fetch
-    threading.Thread(target=start_ws,                daemon=True).start()  # WebSocket
-    threading.Thread(target=funding_loop,            daemon=True).start()  # Funding
-    threading.Thread(target=ohlcv_refresh_loop,      daemon=True).start()  # OHLCV refresh
-    threading.Thread(target=scanner_loop,            daemon=True).start()  # Scanner
-    threading.Thread(target=hourly_loop,             daemon=True).start()  # Hourly TG
-    threading.Thread(target=watchlist_refresh_loop,  daemon=True).start()  # Watchlist refresh
-    if bot:
-        threading.Thread(target=lambda: bot.infinity_polling(none_stop=True),
-                         daemon=True).start()
+    threading.Thread(target=initial_ohlcv_load,      daemon=True).start()  
+    threading.Thread(target=start_ws,                daemon=True).start()  
+    threading.Thread(target=funding_loop,            daemon=True).start()  
+    threading.Thread(target=ohlcv_refresh_loop,      daemon=True).start()  
+    threading.Thread(target=scanner_loop,            daemon=True).start()  
+    threading.Thread(target=hourly_loop,             daemon=True).start()  
+    threading.Thread(target=watchlist_refresh_loop,  daemon=True).start()  
+    
+if bot:
+    @bot.message_handler(commands=['cek'])
+    def cek_koin(message):
+        try:
+            sym_input = message.text.split()[1].upper()
+            # Cari koin yang mengandung input (misal: BTC -> BTC/IDR atau BTC/USDT)
+            res = next((v for k, v in market_data.items() if sym_input in k), None)
+            if not res:
+                bot.reply_to(message, f"❌ Data {sym_input} tidak ditemukan.")
+                return
+            
+            bot.reply_to(message, f"🔍 *Kondisi {res['symbol']}*\nGrade: {res['grade']}\nScore: {res['agg_score']}\nPrice: {res['price']}\nTrend: {res['agg_direction']}")
+        except:
+            bot.reply_to(message, "Gunakan format: /cek btc")
 
-    # Step 4: Flask runs (non-blocking threads handle everything else)
-    app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+    @bot.message_handler(commands=['status'])
+    def cek_status(message):
+        ready = "AKTIF ✅" if startup_status['ready'] else "INITIALIZING ⏳"
+        bot.reply_to(message, f"🤖 *APEX AI Status*: {ready}\n🔄 Scanned: {len(market_data)} symbols")
+
+    @bot.message_handler(commands=['posisi'])
+    def cek_posisi(message):
+        acc = load_account()
+        if not acc['positions']: return bot.reply_to(message, "Tidak ada posisi aktif.")
+        text = "📂 *Open Positions:*\n"
+        for p in acc['positions'].values():
+            text += f"- {p['symbol']} | {p['direction']} | Margin: ${p['margin']}\n"
+        bot.reply_to(message, text)
+
+    @bot.message_handler(commands=['history'])
+    def cek_history(message):
+        acc = load_account()
+        last_3 = acc['history'][-3:]
+        text = "📜 **3 Trade Terakhir:**\n"
+        for h in last_3:
+            text += f"- {h['symbol']}: ${h.get('realized_pnl',0):.2f} ({h.get('close_reason','?')})\n"
+        bot.reply_to(message, text)
+
+    threading.Thread(target=lambda: bot.infinity_polling(none_stop=True), daemon=True).start()
+
+app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
