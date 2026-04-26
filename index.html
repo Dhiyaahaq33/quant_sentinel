@@ -968,12 +968,13 @@ function renderFeed() {
     ).join('');
 
     const card = document.createElement('div');
+    const cardSymbol = item.symbol.replace('/IDR', '').replace('/USDT', ''); 
     card.className = `signal-card ${dirClass}`;
     card.innerHTML = `
       <div class="card-header">
         <div>
-          <div class="card-symbol">${item.symbol.replace('/USDT','')}<span style="color:var(--text3);font-size:0.6em;">/USDT</span></div>
-          <div class="card-price" data-symbol="${item.symbol.replace('/USDT','')}">$${parseFloat(item.price).toFixed(4)}</div>
+          <div class="card-symbol">${cardSymbol}<span style="color:var(--text3);font-size:0.6em;">/USDT</span></div>
+          <div class="card-price" data-symbol="${cardSymbol}">$${parseFloat(item.price).toFixed(4)}</div>
         </div>
         <div class="card-right">
           <div class="card-direction ${dirBadge}">${dirLabel}</div>
