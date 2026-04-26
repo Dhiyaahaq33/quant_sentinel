@@ -1074,13 +1074,19 @@ def api_account():
     return jsonify({"stats": stats, "positions": positions_list,
                     "history": account['history'][-10:]})
 
-@app.route('/api/close/<pid>', methods=['POST'])
-def api_close(pid):
-    if not _auth(): return jsonify({"error":"Unauthorized"}), 401
-    account = load_account()
-    result, msg = close_manual(account, pid, current_prices)
-    if result: return jsonify({"success": True, "pnl": result['realized_pnl']})
-    return jsonify({"success": False, "error": msg}), 400
+@app.route('/api/account/reset', methods=['POST'])
+def api_reset():
+    if not _auth(): 
+        return jsonify({"error":"Unauthorized"}), 401
+    
+    data = request.json
+    password_input = data.get('password')
+    
+    if password_input == "130806":
+        reset_account()
+        return jsonify({"success": True, "message": "Account reset to $1000"})
+    else:
+        return jsonify({"success": False, "error": "Password Reset Salah!"}), 403
 
 @app.route('/api/account/reset', methods=['POST'])
 def api_reset():
