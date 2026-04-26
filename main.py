@@ -136,6 +136,41 @@ def calc_stoch(df, k=14, d=3):
     pk = 100 * (df['close'] - lo) / denom
     return pk, pk.rolling(d).mean()
 
+def calc_validity_multiplier(metrics):
+    """
+    Menghitung multiplier berdasarkan Filter Trading (Aman vs Warning).
+    Multiplier 1.0 = Aman, < 1.0 = Warning/Pinalti.
+    """
+    penalty = 1.0
+    reasons = []
+
+    # 1. Market Cap (Asumsi data MC tersedia dari API)
+    mc = metrics.get('market_cap', 11e9) # Default Aman > $10B
+    if 1e9 <= mc <= 10e9:
+        penalty *= 0.85
+        reasons.append("⚠️ MC Warning ($1B-$10B)")
+
+    # 2. Volatility Daily (Menggunakan ATR % sebagai proxy)
+    volatility = metrics.get('atr_pct', 5) # Default Aman 3%-8%
+    if 8 <= volatility <= 15:
+        penalty *= 0.80
+        reasons.append("⚠️ High Volatility (8%-15%)")
+
+    # 3. Funding Rate
+    fr = metrics.get('funding_rate', 0.0) # Default Aman -0.01% s/d 0.01%
+    abs_fr = abs(fr)
+    if 0.01 < abs_fr <= 0.05:
+        penalty *= 0.75
+        reasons.append("⚠️ FR Warning (±0.01%-0.05%)")
+
+    # 4. Liquidity & Volume/MC (Proxy dari Volume 24h)
+    volume_mc_ratio = metrics.get('vol_mc_ratio', 0.10) # Default Aman 5%-20%
+    if volume_mc_ratio < 0.05 or volume_mc_ratio > 0.20:
+        penalty *= 0.90
+        reasons.append("⚠️ Volume/MC Ratio Unbalanced")
+
+    return round(penalty, 2), reasons
+
 def calc_vwap(df):
     tp = (df['high'] + df['low'] + df['close']) / 3
     vol_sum = df['vol'].cumsum().replace(0, np.nan)
@@ -449,6 +484,49 @@ def is_intrinsically_strong(analysis):
     
     return is_a_plus and vol_spike and trend_aligned
 
+def calc_micro_metrics(df, n=35):
+    """Mengambil logika AKSA: Menghitung dominasi Spot vs Futures dan Delta CVD"""
+    if len(df) < n: return 0, 0, 0
+    
+    tail = df.tail(n).copy()
+    delta = tail['vol'].where(tail['close'] > tail['open'], 0) - \
+            tail['vol'].where(tail['close'] <= tail['open'], 0)
+    
+    cvd_total = float(delta.sum())
+    
+    half = n // 2
+    cvd_past = float(delta.iloc[:half].sum())
+    cvd_current = float(delta.iloc[half:].sum())
+    
+    total_vol = float(tail['vol'].sum())
+    delta_cvd_pct = ((cvd_current - cvd_past) / total_vol * 100.0) if total_vol > 0 else 0
+    
+    return cvd_total, round(delta_cvd_pct, 2)
+
+def get_squeeze_info(delta_oi, fr, delta_p):
+    """Menghitung sisa bahan bakar Short Squeeze"""
+    if delta_oi < -5.0 and fr < 0:
+        return "🚀 Early Squeeze (High Fuel)"
+    elif delta_oi < -2.0:
+        return "⚡ Mid Squeeze (Fading Fuel)"
+    return "─"
+
+def calc_cvd_volume_consistency(delta_cvd_spot, vol_ratio):
+    """
+    Update Baru: Cek apakah volume saat ini konsisten dengan momentum CVD.
+    Mencegah masuk ke sinyal 'basi' di mana CVD tinggi tapi volume sudah hilang.
+    """
+    if delta_cvd_spot <= 0:
+        return 1.0, ""
+
+    if vol_ratio < 0.3:
+        return 0.65, "⚠️ CVD-Vol Inconsistent (Momentum memudar)"
+    elif vol_ratio < 0.5:
+        return 0.80, "🟡 CVD-Vol Lemah (Konfirmasi tipis)"
+    elif vol_ratio >= 2.0 and delta_cvd_spot > 5.0:
+        return 1.06, "✅ CVD-Vol Kuat (Momentum aktif)"
+    
+    return 1.0, ""
 
 def analyze(sym):
     with ohlcv_lock:
@@ -457,16 +535,20 @@ def analyze(sym):
 
     with ws_lock:
         rt = ws_prices.get(sym, 0)
+        funding = ws_funding.get(sym, 0.0) 
 
     results = {}
+    
     for tf in TIMEFRAMES:
         df = sc.get(tf)
         if df is None or len(df) < 30: continue
         df = df.copy()
+        
         if rt > 0:
             df.iloc[-1, df.columns.get_loc('close')] = rt
 
         try:
+            # --- KALKULASI INDIKATOR ASLI ---
             df['rsi']                               = calc_rsi(df['close'])
             df['ema9']                              = calc_ema(df['close'], 9)
             df['ema21']                             = calc_ema(df['close'], 21)
@@ -477,125 +559,89 @@ def analyze(sym):
             df['cvd']                               = calc_cvd(df)
             df['vwap']                              = calc_vwap(df)
             df['stk'], df['std']                    = calc_stoch(df)
+            
+            df['vavg'] = df['vol'].rolling(20).mean()
+            vavg       = df['vavg'].iloc[-1]
+            vspike     = df['vol'].iloc[-1] / vavg if (vavg and vavg > 0) else 1
+            
+            gv  = df[df['close'] > df['open']]['vol'].sum()
+            rv  = df[df['close'] < df['open']]['vol'].sum()
+            mpi = (gv / (gv + rv)) * 100 if (gv + rv) > 0 else 50
+            
+            last = df.iloc[-1]
+            prev = df.iloc[-2]
+            
+            score, reasons = 50, []
+            
+            rsi_val = last['rsi']
+            if not pd.isna(rsi_val):
+                if rsi_val < 30: score += 15; reasons.append("RSI Oversold")
+                elif rsi_val > 70: score -= 15; reasons.append("RSI Overbought")
+
+            _, delta_cvd_pct = calc_micro_metrics(df, 30) 
+            cvd_vol_mult, cvd_vol_desc = calc_cvd_volume_consistency(delta_cvd_pct, vspike)
+            
+            if cvd_vol_mult != 1.0:
+                score *= cvd_vol_mult
+                if cvd_vol_desc:
+                    reasons.append(cvd_vol_desc)
+
+            current_metrics = {
+                'funding_rate': funding,
+                'atr_pct': (last['atr'] / last['close']) * 100 if last['close'] > 0 else 0
+            }
+            validity_mult, validity_reasons = calc_validity_multiplier(current_metrics)
+            
+            price_move = abs(df['close'].iloc[-1] - df['close'].iloc[-10])
+            if delta_cvd_pct > 5.0 and price_move < (last['atr'] * 0.5):
+                score *= 0.40 
+                reasons.append("🧱 Absorption (Iceberg Detected)")
+
+            score *= validity_mult
+            reasons.extend(validity_reasons)
+            
+            if validity_mult < 0.60:
+                reasons.append("🚫 SIGNAL INVALID (High Risk)")
+                score = 50 
+
+            score = max(0, min(100, score))
+            
+            direction = "LONG" if score >= 70 else "SHORT" if score <= 30 else "NEUTRAL"
+            cp = last['close']
+            atr_v = last['atr'] if not pd.isna(last['atr']) else 0
+            
+            if direction == "LONG":
+                tp1, tp2, tp3 = cp+atr_v*1.5, cp+atr_v*3.0, cp+atr_v*5.0; sl = cp-atr_v*1.5
+            elif direction == "SHORT":
+                tp1, tp2, tp3 = cp-atr_v*1.5, cp-atr_v*3.0, cp-atr_v*5.0; sl = cp+atr_v*1.5
+            else:
+                tp1=tp2=tp3=sl=cp
+
+            results[tf] = {
+                'price': round(float(cp),6),
+                'direction': direction,
+                'score': round(float(score),1),
+                'tp1': round(float(tp1),6), 'tp2': round(float(tp2),6), 'tp3': round(float(tp3),6),
+                'sl': round(float(sl),6), 'reasons': reasons,
+                'rsi': round(float(rsi_val),2) if not pd.isna(rsi_val) else 50,
+                'vol_spike': round(vspike,2), 'cvd': round(float(delta_cvd_pct),2),
+                'vwap': round(float(last['vwap']),6), 'atr': round(float(atr_v),6)
+            }
         except Exception:
             continue
-
-        last = df.iloc[-1]; prev = df.iloc[-2]
-        poc  = calc_vp(df)
-
-        df['vavg'] = df['vol'].rolling(20).mean()
-        vavg       = df['vavg'].iloc[-1]
-        vspike     = last['vol'] / vavg if (vavg and vavg > 0) else 1
-
-        gv  = df[df['close'] > df['open']]['vol'].sum()
-        rv  = df[df['close'] < df['open']]['vol'].sum()
-        mpi = (gv / (gv + rv)) * 100 if (gv + rv) > 0 else 50
-
-        score, reasons = 50, []
-        rsi = last['rsi']
-
-        if   pd.isna(rsi): pass
-        elif rsi < 30: score += 15; reasons.append("RSI Oversold")
-        elif rsi < 45: score += 7;  reasons.append("RSI Bullish Zone")
-        elif rsi > 70: score -= 15; reasons.append("RSI Overbought")
-        elif rsi > 55: score -= 7;  reasons.append("RSI Bearish Zone")
-
-        if   last['ema9'] > last['ema21'] > last['ema50']: score += 12; reasons.append("EMA Bullish Stack")
-        elif last['ema9'] < last['ema21'] < last['ema50']: score -= 12; reasons.append("EMA Bearish Stack")
-
-        if   last['mhist'] > 0 and prev['mhist'] < 0: score += 10; reasons.append("MACD Cross UP")
-        elif last['mhist'] < 0 and prev['mhist'] > 0: score -= 10; reasons.append("MACD Cross DOWN")
-        elif last['mhist'] > 0: score += 5
-        else:                   score -= 5
-
-        if   last['close'] < last['bbl']: score += 10; reasons.append("Below BB Lower")
-        elif last['close'] > last['bbu']: score -= 10; reasons.append("Above BB Upper")
-
-        if last['close'] > last['vwap']: score += 5; reasons.append("Above VWAP")
-        else:                            score -= 5
-
-        cvd_t = df['cvd'].iloc[-5:].mean() - df['cvd'].iloc[-10:-5].mean()
-        if   cvd_t > 0: score += 8; reasons.append("CVD Rising")
-        else:           score -= 8; reasons.append("CVD Falling")
-
-        if vspike > 2:
-            if score > 50: score += 10; reasons.append(f"Vol Spike {vspike:.1f}x (Bullish)")
-            else:          score -= 10; reasons.append(f"Vol Spike {vspike:.1f}x (Bearish)")
-
-        if   last['stk'] < 20 and last['stk'] > last['std']: score += 8; reasons.append("Stoch Oversold Cross")
-        elif last['stk'] > 80 and last['stk'] < last['std']: score -= 8; reasons.append("Stoch Overbought Cross")
-
-        ob  = ob_metrics(sym)
-        obi = ob['ob_imbalance']
-        if   obi > 0.65: score += 6; reasons.append("OB Bid Heavy (Bullish)")
-        elif obi < 0.35: score -= 6; reasons.append("OB Ask Heavy (Bearish)")
-
-        if mpi > 65:   score += 5
-        elif mpi < 35: score -= 5
-
-        score = max(0, min(100, score))
-        direction = "LONG" if score >= 70 else "SHORT" if score <= 30 else "NEUTRAL"
-
-        atr_v = last['atr'] if not pd.isna(last['atr']) else 0
-        cp    = last['close']
-        if   direction == "LONG":
-            tp1,tp2,tp3 = cp+atr_v*1.5, cp+atr_v*3.0, cp+atr_v*5.0; sl = cp-atr_v*1.5
-        elif direction == "SHORT":
-            tp1,tp2,tp3 = cp-atr_v*1.5, cp-atr_v*3.0, cp-atr_v*5.0; sl = cp+atr_v*1.5
-        else:
-            tp1=tp2=tp3=sl=cp
-
-        results[tf] = {
-            'price':     round(float(cp),6),
-            'direction':  direction,
-            'score':     round(float(score),1),
-            'rsi':       round(float(rsi),2) if not pd.isna(rsi) else 50,
-            'macd_hist': round(float(last['mhist']),6),
-            'bb_upper':  round(float(last['bbu']),6),
-            'bb_lower':  round(float(last['bbl']),6),
-            'vwap':      round(float(last['vwap']),6),
-            'atr':       round(float(atr_v),6),
-            'mpi':       round(mpi,1),
-            'vol_spike': round(vspike,2),
-            'cvd':       round(float(df['cvd'].iloc[-1]),2),
-            'stoch_k':   round(float(last['stk']),2) if not pd.isna(last['stk']) else 50,
-            'poc':       round(poc,6),
-            'tp1':round(float(tp1),6),'tp2':round(float(tp2),6),'tp3':round(float(tp3),6),
-            'sl':round(float(sl),6),
-            'reasons':   reasons,
-            'ob':        ob,
-        }
-
+    
     if not results: return None
 
-    with ws_lock:
-        funding = ws_funding.get(sym, 0.0)
-    try:    oi = get_oi(sym); ls = get_ls(sym)
-    except: oi, ls = 0, 1.0
-
-    weighted_sum  = sum(results[tf]['score'] * TF_WEIGHTS[tf] for tf in results if tf in TF_WEIGHTS)
-    weight_total  = sum(TF_WEIGHTS[tf] for tf in results if tf in TF_WEIGHTS)
+    weighted_sum = sum(results[tf]['score'] * TF_WEIGHTS[tf] for tf in results if tf in TF_WEIGHTS)
+    weight_total = sum(TF_WEIGHTS[tf] for tf in results if tf in TF_WEIGHTS)
     agg = round(weighted_sum / weight_total, 1) if weight_total > 0 else 50.0
 
-    agg_dir = "LONG" if agg >= 65 else "SHORT" if agg <= 35 else "NEUTRAL"
-    grade   = "A+" if (agg >= 75 or agg <= 25) else "B" if (agg >= 65 or agg <= 35) else "C"
-    price   = rt if rt > 0 else results.get('1h', results[list(results)[-1]])['price']
-
-    signal_strength = abs(agg - 50)
-
     return {
-        'symbol':        sym,
-        'timeframes':    results,
-        'agg_score':     agg,
-        'agg_direction': agg_dir,
-        'grade':         grade,
-        'signal_strength': round(signal_strength, 1),
-        'funding_rate':  round(funding, 4),
-        'open_interest': round(oi, 2),
-        'ls_ratio':      round(ls, 3),
-        'price':         price,
-        'orderbook':     ob_metrics(sym),
-        'timestamp':     datetime.now(timezone.utc).strftime('%H:%M:%S')
+        'symbol': sym, 'timeframes': results, 'agg_score': agg,
+        'agg_direction': "LONG" if agg >= 65 else "SHORT" if agg <= 35 else "NEUTRAL",
+        'grade': "A+" if (agg >= 75 or agg <= 25) else "B" if (agg >= 65 or agg <= 35) else "C",
+        'price': rt if rt > 0 else results[list(results.keys())[-1]]['price'],
+        'funding_rate': round(funding, 4), 'timestamp': datetime.now(timezone.utc).strftime('%H:%M:%S')
     }
 
 # ============================================================
@@ -666,6 +712,9 @@ def open_pos(account, sym, direction, entry, tp1, tp2, tp3, sl, score, reasons):
 
     notional = margin * LEVERAGE
     pid = str(uuid.uuid4())[:8].upper()
+
+    with ws_lock:
+        funding = ws_funding.get(sym, 0.0)
     
     pos = {
         'id': pid, 'symbol': sym, 'direction': direction,
