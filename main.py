@@ -36,7 +36,7 @@ SCAN_WORKERS = 5
 
 MIN_VOLUME_USDT = 5_000_000  # 5M USDT 24h volume
 
-TOKEN        = os.getenv("TOKEN_HACK")
+TOKEN        = os.getenv("TOKEN_HIGH")
 CHAT_ID      = os.getenv("CHAT_ID")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "181268")
 
@@ -1087,12 +1087,6 @@ def api_reset():
         return jsonify({"success": True, "message": "Account reset to $1000"})
     else:
         return jsonify({"success": False, "error": "Password Reset Salah!"}), 403
-
-@app.route('/api/account/reset', methods=['POST'])
-def api_reset():
-    if not _auth(): return jsonify({"error":"Unauthorized"}), 401
-    reset_account()
-    return jsonify({"success": True, "message": "Account reset to $1000"})
 
 @app.route('/api/account/margin', methods=['POST'])
 def api_set_margin():
