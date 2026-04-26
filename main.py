@@ -727,15 +727,26 @@ def open_pos(account, sym, direction, entry, tp1, tp2, tp3, sl, score, reasons):
     account['balance'] -= margin
     save_account(account)
 
+    tf_data = analysis_data['timeframes'].get('1h', {}) if analysis_data else {}
+
     msg = (
         f"🚀 *NEW POSITION OPENED*\n"
         f"━━━━━━━━━━━━━━━\n"
-        f"🪙 Symbol: #{sym.replace('/USDT', '')}\n" # Menghapus akhiran /USDT untuk hashtag
+        f"🪙 Symbol: #{sym.replace('/USDT', '')}\n"
         f"📈 Signal: *{direction}* | Score: `{score}/100`\n"
-        f"💵 Entry: `${entry:.6f}`\n" # Tambahkan simbol $
-        f"🛑 SL: `${sl:.6f}`\n"
-        f"🎯 TP1: `${tp1:.6f}` | TP2: `${tp2:.6f}` | TP3: `${tp3:.6f}`\n"
-        f"📊 Info: _{pos['indicators']}_"
+        f"💵 Entry: `{entry:.6f}`\n"
+        f"🛑 SL: `{sl:.6f}`\n"
+        f"🎯 TP1: `{tp1:.6f}` | TP2: `{tp2:.6f}` | TP3: `{tp3:.6f}`\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"📊 *Technical Indicators (1H):*\n"
+        f"• RSI: `{tf_data.get('rsi', 0):.1f}`\n"
+        f"• Vol Spike: `{tf_data.get('vol_spike', 0):.1f}x`\n"
+        f"• CVD: `{tf_data.get('cvd', 0):.0f}`\n"
+        f"• VWAP: `{'▲ Above' if entry > tf_data.get('vwap', 0) else '▼ Below'}`\n"
+        f"• Funding: `{analysis_data.get('funding_rate', 0):.4f}%`\n"
+        f"• L/S Ratio: `{analysis_data.get('ls_ratio', 0):.2f}`\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"📝 *Reasons:* _{', '.join(reasons)}_"
     )
     tg_send(msg)
     return pid, pos
@@ -845,7 +856,8 @@ def scanner_loop():
                         if tfd:
                                 pid, pos = open_pos(account, sym, res['agg_direction'], res['price'],
                                                     tfd['tp1'], tfd['tp2'], tfd['tp3'], tfd['sl'],
-                                                    res['agg_score'], tfd['reasons'])
+                                                    res['agg_score'], tfd['reasons'], 
+                                                    analysis_data=res)
                                 if pid:
                                     last_signals[sym] = sig_key
                                     tg_opened(pos)
