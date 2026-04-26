@@ -641,24 +641,32 @@ async function checkStartupStatus() {
 
 
 async function confirmReset() {
-  if (confirm("Apakah Anda yakin ingin meriset saldo ke $1000 dan menghapus semua riwayat trading?")) {
-    try {
-      const response = await fetch('/api/account/reset', { 
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
-      });
-      const data = await response.json();
-      
-      if (data.success) {
-        showToast("Account Reset Successfully!");
-        // Refresh data akun setelah reset
-        fetchAccount(); 
-      } else {
-        alert("Gagal reset: " + data.error);
+  const pass = prompt("Masukkan Password Reset:");
+  
+  if (pass === null) return; 
+
+  if (pass === "130806") {
+    if (confirm("Apakah Anda yakin ingin reset saldo ke $1000 dan menghapus semua riwayat trading?")) {
+      try {
+        const response = await fetch('/api/account/reset', { 
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: pass }) 
+        });
+        const data = await response.json();
+        
+        if (data.success) {
+          showToast("Account Reset Successfully!");
+          fetchAccount(); 
+        } else {
+          alert("Gagal reset: " + data.error);
+        }
+      } catch (err) {
+        console.error("Error resetting account:", err);
       }
-    } catch (err) {
-      console.error("Error resetting account:", err);
     }
+  } else {
+    alert("Password Salah! Akses ditolak.");
   }
 }
 
