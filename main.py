@@ -181,18 +181,15 @@ def calc_vwap(df):
 # ============================================================
 def load_watchlist_indodax():
     global WATCHLIST
-
-    print("📋 Loading Indodax symbols...")
     try:
         markets = exchange_indodax.load_markets()
-        symbols = [s for s in markets if s.endswith('/IDR') or s.endswith('/USDT')]
+        # Filter koin yang berpasangan dengan USDT saja
+        symbols = [s for s in markets if s.endswith('/USDT')]
         with watchlist_lock:
             WATCHLIST.clear()
             WATCHLIST.extend(symbols)
-        print(f"✅ Indodax Watchlist loaded: {len(WATCHLIST)} symbols")
         return True
     except Exception as e:
-        print(f"❌ Indodax Watchlist failed: {e}")
         return False
 
     
@@ -730,15 +727,14 @@ def open_pos(account, sym, direction, entry, tp1, tp2, tp3, sl, score, reasons):
     account['balance'] -= margin
     save_account(account)
 
-    # --- INFO KE TELEGRAM JAM YG SAMA ---
     msg = (
         f"🚀 *NEW POSITION OPENED*\n"
         f"━━━━━━━━━━━━━━━\n"
-        f"🪙 Symbol: #{sym.replace('/IDR', '').replace('/USDT', '')}\n"
+        f"🪙 Symbol: #{sym.replace('/USDT', '')}\n" # Menghapus akhiran /USDT untuk hashtag
         f"📈 Signal: *{direction}* | Score: `{score}/100`\n"
-        f"💵 Entry: `{entry:.6f}`\n"
-        f"🛑 SL: `{sl:.6f}`\n"
-        f"🎯 TP1: `{tp1:.6f}` | TP2: `{tp2:.6f}` | TP3: `{tp3:.6f}`\n"
+        f"💵 Entry: `${entry:.6f}`\n" # Tambahkan simbol $
+        f"🛑 SL: `${sl:.6f}`\n"
+        f"🎯 TP1: `${tp1:.6f}` | TP2: `${tp2:.6f}` | TP3: `${tp3:.6f}`\n"
         f"📊 Info: _{pos['indicators']}_"
     )
     tg_send(msg)
