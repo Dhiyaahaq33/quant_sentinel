@@ -36,7 +36,7 @@ SCAN_WORKERS = 5
 
 MIN_VOLUME_USDT = 5_000_000  # 5M USDT 24h volume
 
-TOKEN        = os.getenv("TOKEN_HIGH")
+TOKEN        = os.getenv("TOKEN_HACK")
 CHAT_ID      = os.getenv("CHAT_ID")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "181268")
 
