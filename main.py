@@ -479,10 +479,6 @@ def is_intrinsically_strong(analysis):
     trend_aligned = tf_1h.get('direction') == analysis['agg_direction']
     
     return is_strong_grade and vol_spike and trend_aligned
-
-def calc_micro_metrics(df, n=35):
-    """Mengambil logika AKSA: Menghitung dominasi Spot vs Futures dan Delta CVD"""
-    if len(df) < n: return 0, 0, 0
     
     tail = df.tail(n).copy()
     delta = tail['vol'].where(tail['close'] > tail['open'], 0) - \
@@ -498,31 +494,6 @@ def calc_micro_metrics(df, n=35):
     delta_cvd_pct = ((cvd_current - cvd_past) / total_vol * 100.0) if total_vol > 0 else 0
     
     return cvd_total, round(delta_cvd_pct, 2)
-
-def get_squeeze_info(delta_oi, fr, delta_p):
-    """Menghitung sisa bahan bakar Short Squeeze"""
-    if delta_oi < -5.0 and fr < 0:
-        return "🚀 Early Squeeze (High Fuel)"
-    elif delta_oi < -2.0:
-        return "⚡ Mid Squeeze (Fading Fuel)"
-    return "─"
-
-def calc_cvd_volume_consistency(delta_cvd_spot, vol_ratio):
-    """
-    Update Baru: Cek apakah volume saat ini konsisten dengan momentum CVD.
-    Mencegah masuk ke sinyal 'basi' di mana CVD tinggi tapi volume sudah hilang.
-    """
-    if delta_cvd_spot <= 0:
-        return 1.0, ""
-
-    if vol_ratio < 0.3:
-        return 0.65, "⚠️ CVD-Vol Inconsistent (Momentum memudar)"
-    elif vol_ratio < 0.5:
-        return 0.80, "🟡 CVD-Vol Lemah (Konfirmasi tipis)"
-    elif vol_ratio >= 2.0 and delta_cvd_spot > 5.0:
-        return 1.06, "✅ CVD-Vol Kuat (Momentum aktif)"
-    
-    return 1.0, ""
 
 def get_live_usd_rate():
     """Mengambil kurs USD ke IDR terbaru dari API publik"""
@@ -591,9 +562,7 @@ def analyze(sym):
                 if rsi_val < 30: score += 15; reasons.append("RSI Oversold")
                 elif rsi_val > 70: score -= 15; reasons.append("RSI Overbought")
 
-            # CVD Analysis
-            _, delta_cvd_pct = calc_micro_metrics(df, 30) 
-            cvd_vol_mult, cvd_vol_desc = calc_cvd_volume_consistency(delta_cvd_pct, vspike)
+            
             
             # Scoring & Grade Perfect Setup
             if score >= 75 and mpi > 65 and vspike > 1.5:
@@ -615,9 +584,9 @@ def analyze(sym):
             # Apply Validity Penalties
             metrics = {'funding_rate': funding, 'atr_pct': (last['atr']/cp)*100 if cp > 0 else 5}
             v_mult, v_reasons = calc_validity_multiplier(metrics)
-            score *= (v_mult * cvd_vol_mult)
+            score *= v_mult
             reasons.extend(v_reasons)
-            if cvd_vol_desc: reasons.append(cvd_vol_desc)
+        
 
             # Execution Barrier (Dilonggarkan ke 0.45)
             if v_mult < 0.45:
