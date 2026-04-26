@@ -36,7 +36,7 @@ SCAN_WORKERS = 5
 
 MIN_VOLUME_USDT = 5_000_000  # 5M USDT 24h volume
 
-TOKEN        = os.getenv("TOKEN_HACK")
+TOKEN        = os.getenv("TOKEN_HIGH")
 CHAT_ID      = os.getenv("CHAT_ID")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "181268")
 
@@ -138,36 +138,35 @@ def calc_stoch(df, k=14, d=3):
 
 def calc_validity_multiplier(metrics):
     """
+    Update: Institutional-grade dynamic risk-multipliers.
     Menghitung multiplier berdasarkan Filter Trading (Aman vs Warning).
-    Multiplier 1.0 = Aman, < 1.0 = Warning/Pinalti.
     """
     penalty = 1.0
     reasons = []
 
-    # 1. Market Cap (Asumsi data MC tersedia dari API)
-    mc = metrics.get('market_cap', 11e9) # Default Aman > $10B
+    # 1. Market Cap Check
+    mc = metrics.get('market_cap', 11e9) 
     if 1e9 <= mc <= 10e9:
         penalty *= 0.85
         reasons.append("⚠️ MC Warning ($1B-$10B)")
 
-    # 2. Volatility Daily (Menggunakan ATR % sebagai proxy)
-    volatility = metrics.get('atr_pct', 5) # Default Aman 3%-8%
-    if 8 <= volatility <= 15:
-        penalty *= 0.80
-        reasons.append("⚠️ High Volatility (8%-15%)")
-
-    # 3. Funding Rate
-    fr = metrics.get('funding_rate', 0.0) # Default Aman -0.01% s/d 0.01%
-    abs_fr = abs(fr)
-    if 0.01 < abs_fr <= 0.05:
-        penalty *= 0.75
-        reasons.append("⚠️ FR Warning (±0.01%-0.05%)")
-
-    # 4. Liquidity & Volume/MC (Proxy dari Volume 24h)
-    volume_mc_ratio = metrics.get('vol_mc_ratio', 0.10) # Default Aman 5%-20%
-    if volume_mc_ratio < 0.05 or volume_mc_ratio > 0.20:
+    # 2. Volatility Daily (ATR % Proxy) - Batas Dilonggarkan
+    volatility = metrics.get('atr_pct', 5) 
+    if 8 <= volatility <= 20: # Dilonggarkan sesuai permintaan sebelumnya
         penalty *= 0.90
-        reasons.append("⚠️ Volume/MC Ratio Unbalanced")
+        reasons.append(f"⚠️ High Volatility ({volatility:.1f}%)")
+
+    # 3. Funding Rate Check - Batas Dilonggarkan
+    fr = abs(metrics.get('funding_rate', 0.0))
+    if 0.01 < fr <= 0.06: # Dilonggarkan hingga 0.06%
+        penalty *= 0.85
+        reasons.append(f"⚠️ FR Warning ({fr*100:.3f}%)")
+
+    # 4. Liquidity & Volume/MC Ratio
+    ratio = metrics.get('vol_mc_ratio', 0.10)
+    if ratio < 0.05 or ratio > 0.25:
+        penalty *= 0.95
+        reasons.append("⚠️ Liquidity/MC Ratio Unbalanced")
 
     return round(penalty, 2), reasons
 
@@ -469,17 +468,17 @@ def get_ls(sym):
 # ============================================================
 
 def is_intrinsically_strong(analysis):
-    """Filter tambahan: Skor tinggi + Volume mendukung + Trend satu arah"""
+    """Lelonggaran: Menerima Grade A & A+ dengan syarat volume lebih ringan"""
     if not analysis: return False
     
-    agg_score = analysis.get('agg_score', 50)
-    tf_1h = analysis['timeframes'].get('1h', {})
+    is_strong_grade = analysis['grade'] in ['A+', 'A']
     
-    is_a_plus = analysis['grade'] == 'A+'
-    vol_spike = tf_1h.get('vol_spike', 0) > 1.5
+    tf_1h = analysis['timeframes'].get('1h', {})
+    vol_spike = tf_1h.get('vol_spike', 0) > 1.2
+    
     trend_aligned = tf_1h.get('direction') == analysis['agg_direction']
     
-    return is_a_plus and vol_spike and trend_aligned
+    return is_strong_grade and vol_spike and trend_aligned
 
 def calc_micro_metrics(df, n=35):
     """Mengambil logika AKSA: Menghitung dominasi Spot vs Futures dan Delta CVD"""
@@ -525,6 +524,31 @@ def calc_cvd_volume_consistency(delta_cvd_spot, vol_ratio):
     
     return 1.0, ""
 
+def get_live_usd_rate():
+    """Mengambil kurs USD ke IDR terbaru dari API publik"""
+    try:
+        url = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json"
+        response = requests.get(url, timeout=10)
+        data = response.json()
+        rate = data['usd']['idr']
+        return float(rate)
+    except Exception as e:
+        print(f"⚠️ Gagal ambil kurs real-time: {e}. Menggunakan fallback.")
+        return 17200.0  
+
+def calculate_adaptive_targets(df, curr_p, vol_spike_ratio):
+    """Menghitung TP adaptif berdasarkan volatilitas pasar"""
+    df_copy = df.copy()
+    df_copy['range_pct'] = (df_copy['high'] - df_copy['low']) / df_copy['low']
+    avg_range = df_copy['range_pct'].tail(20).mean()
+    base_step = max(min(avg_range, 0.08), 0.01)
+    power_multiplier = 1.0 + (vol_spike_ratio / 10)
+    
+    tp1 = curr_p * (1 + base_step)
+    tp2 = curr_p * (1 + base_step * 1.8 * power_multiplier)
+    tp3 = curr_p * (1 + base_step * 3.5 * power_multiplier)
+    return round(tp1, 6), round(tp2, 6), round(tp3, 6)
+
 def analyze(sym):
     with ohlcv_lock:
         sc = ohlcv_cache.get(sym, {})
@@ -535,97 +559,82 @@ def analyze(sym):
         funding = ws_funding.get(sym, 0.0) 
 
     results = {}
-    
     for tf in TIMEFRAMES:
         df = sc.get(tf)
         if df is None or len(df) < 30: continue
         df = df.copy()
-        
         if rt > 0:
             df.iloc[-1, df.columns.get_loc('close')] = rt
 
         try:
-            # --- KALKULASI INDIKATOR ASLI ---
-            df['rsi']                               = calc_rsi(df['close'])
-            df['ema9']                              = calc_ema(df['close'], 9)
-            df['ema21']                             = calc_ema(df['close'], 21)
-            df['ema50']                             = calc_ema(df['close'], 50)
-            df['macd'], df['msig'], df['mhist']     = calc_macd(df['close'])
-            df['bbu'], df['bbm'], df['bbl']         = calc_bb(df['close'])
-            df['atr']                               = calc_atr(df)
-            df['cvd']                               = calc_cvd(df)
-            df['vwap']                              = calc_vwap(df)
-            df['stk'], df['std']                    = calc_stoch(df)
-            
+            # --- Technical Indicators ---
+            df['rsi'] = calc_rsi(df['close'])
+            df['atr'] = calc_atr(df)
             df['vavg'] = df['vol'].rolling(20).mean()
-            vavg       = df['vavg'].iloc[-1]
-            vspike     = df['vol'].iloc[-1] / vavg if (vavg and vavg > 0) else 1
+            vavg = df['vavg'].iloc[-1]
+            vspike = df['vol'].iloc[-1] / vavg if (vavg and vavg > 0) else 1
             
-            gv  = df[df['close'] > df['open']]['vol'].sum()
-            rv  = df[df['close'] < df['open']]['vol'].sum()
+            # MPI Calculation
+            gv = df[df['close'] > df['open']]['vol'].sum()
+            rv = df[df['close'] < df['open']]['vol'].sum()
             mpi = (gv / (gv + rv)) * 100 if (gv + rv) > 0 else 50
             
             last = df.iloc[-1]
-            prev = df.iloc[-2]
+            cp = last['close'] # Definisi harga saat ini dipindah ke atas
             
             score, reasons = 50, []
+            grade = "C" # Default grade
             
+            # RSI Logic
             rsi_val = last['rsi']
             if not pd.isna(rsi_val):
                 if rsi_val < 30: score += 15; reasons.append("RSI Oversold")
                 elif rsi_val > 70: score -= 15; reasons.append("RSI Overbought")
 
+            # CVD Analysis
             _, delta_cvd_pct = calc_micro_metrics(df, 30) 
             cvd_vol_mult, cvd_vol_desc = calc_cvd_volume_consistency(delta_cvd_pct, vspike)
             
-            if cvd_vol_mult != 1.0:
-                score *= cvd_vol_mult
-                if cvd_vol_desc:
-                    reasons.append(cvd_vol_desc)
+            # Scoring & Grade Perfect Setup
+            if score >= 75 and mpi > 65 and vspike > 1.5:
+                grade = "A+ (PERFECT)"
+                reasons.append("🔥 PERFECT BULLISH SETUP")
+            elif score <= 25 and mpi < 35 and vspike > 1.5:
+                grade = "A+ (PERFECT)"
+                reasons.append("🔥 PERFECT BEARISH SETUP")
+            else:
+                grade = "A+" if (score >= 75 or score <= 25) else "B" if (score >= 65 or score <= 35) else "C"
 
-            current_metrics = {
-                'funding_rate': funding,
-                'atr_pct': (last['atr'] / last['close']) * 100 if last['close'] > 0 else 0
-            }
-            validity_mult, validity_reasons = calc_validity_multiplier(current_metrics)
+            # Adaptive TP Application
+            if grade == "A+ (PERFECT)":
+                tp1, tp2, tp3 = calculate_adaptive_targets(df, cp, vspike)
+            else:
+                atr_v = last['atr'] if not pd.isna(last['atr']) else 0
+                tp1, tp2, tp3 = cp+atr_v*1.5, cp+atr_v*3.0, cp+atr_v*5.0 # Standar ATR
             
-            price_move = abs(df['close'].iloc[-1] - df['close'].iloc[-10])
-            if delta_cvd_pct > 5.0 and price_move < (last['atr'] * 0.5):
-                score *= 0.40 
-                reasons.append("🧱 Absorption (Iceberg Detected)")
+            # Apply Validity Penalties
+            metrics = {'funding_rate': funding, 'atr_pct': (last['atr']/cp)*100 if cp > 0 else 5}
+            v_mult, v_reasons = calc_validity_multiplier(metrics)
+            score *= (v_mult * cvd_vol_mult)
+            reasons.extend(v_reasons)
+            if cvd_vol_desc: reasons.append(cvd_vol_desc)
 
-            score *= validity_mult
-            reasons.extend(validity_reasons)
-            
-            if validity_mult < 0.60:
-                reasons.append("🚫 SIGNAL INVALID (High Risk)")
-                score = 50 
+            # Execution Barrier (Dilonggarkan ke 0.45)
+            if v_mult < 0.45:
+                reasons.append("🚫 SIGNAL INVALID (High Environment Risk)")
+                score = 50
 
             score = max(0, min(100, score))
-            
             direction = "LONG" if score >= 70 else "SHORT" if score <= 30 else "NEUTRAL"
-            cp = last['close']
-            atr_v = last['atr'] if not pd.isna(last['atr']) else 0
-            
-            if direction == "LONG":
-                tp1, tp2, tp3 = cp+atr_v*1.5, cp+atr_v*3.0, cp+atr_v*5.0; sl = cp-atr_v*1.5
-            elif direction == "SHORT":
-                tp1, tp2, tp3 = cp-atr_v*1.5, cp-atr_v*3.0, cp-atr_v*5.0; sl = cp+atr_v*1.5
-            else:
-                tp1=tp2=tp3=sl=cp
+            sl = cp-last['atr']*1.5 if direction == "LONG" else cp+last['atr']*1.5
 
             results[tf] = {
-                'price': round(float(cp),6),
-                'direction': direction,
-                'score': round(float(score),1),
+                'price': round(float(cp),6), 'direction': direction, 'score': round(float(score),1),
                 'tp1': round(float(tp1),6), 'tp2': round(float(tp2),6), 'tp3': round(float(tp3),6),
-                'sl': round(float(sl),6), 'reasons': reasons,
-                'rsi': round(float(rsi_val),2) if not pd.isna(rsi_val) else 50,
-                'vol_spike': round(vspike,2), 'cvd': round(float(delta_cvd_pct),2),
-                'vwap': round(float(last['vwap']),6), 'atr': round(float(atr_v),6)
+                'sl': round(float(sl),6), 'reasons': reasons, 'rsi': round(float(rsi_val),2),
+                'vol_spike': round(vspike,2), 'cvd': round(float(delta_cvd_pct),2), 'vwap': 0 # Optional
             }
-        except Exception:
-            continue
+        except Exception as e: continue
     
     if not results: return None
 
@@ -695,7 +704,7 @@ def upnl(account, prices):
 def equity(account, prices):
     return round(account['balance'] + upnl(account, prices), 4)
 
-def open_pos(account, sym, direction, entry, tp1, tp2, tp3, sl, score, reasons):
+def open_pos(account, sym, direction, entry, tp1, tp2, tp3, sl, score, reasons, analysis_data=None):
     if len(account['positions']) >= MAX_OPEN_POSITIONS:
         return None, "Max positions reached"
     
@@ -712,6 +721,9 @@ def open_pos(account, sym, direction, entry, tp1, tp2, tp3, sl, score, reasons):
 
     with ws_lock:
         funding = ws_funding.get(sym, 0.0)
+    
+    CURRENT_RATE = get_live_usd_rate()
+    price_usd = entry / CURRENT_RATE
     
     pos = {
         'id': pid, 'symbol': sym, 'direction': direction,
@@ -828,12 +840,19 @@ def get_stats(account, prices):
 # ============================================================
 # 📡 SCANNER LOOP — scans ALL symbols, keeps top N
 # ============================================================
+
 def scanner_loop():
+    global last_rate_update, CURRENT_RATE
     while not startup_status['ready']:
         print("⏳ Waiting for OHLCV cache..."); time.sleep(3)
     print("🔁 Scanner started")
 
     while True:
+        if time.time() - last_rate_update > 3600:
+            CURRENT_RATE = get_live_usd_rate()
+            last_rate_update = time.time()
+            print(f"🔄 Kurs Updated: {CURRENT_RATE}")
+
         with watchlist_lock:
             wl = list(WATCHLIST)
 
