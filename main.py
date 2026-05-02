@@ -409,7 +409,7 @@ def funding_loop():
             wl = list(WATCHLIST)
         _fetch_funding_batch(wl)
         time.sleep(1800)
-
+#TEST
 # ============================================================
 # 📖 ORDERBOOK METRICS
 # ============================================================
